@@ -214,7 +214,7 @@ export class IntuneUploader {
       installCommandLine: 'Invoke-AppDeployToolkit.exe',
       uninstallCommandLine: 'Invoke-AppDeployToolkit.exe -DeploymentType Uninstall',
       applicableArchitectures: this.mapArchitecture(job.architecture),
-      minimumSupportedWindowsRelease: 'v10_21H1',
+      minimumSupportedWindowsRelease: 'W10_21H1',
       runAs32Bit: false,
       fileName: 'Invoke-AppDeployToolkit.exe',
       setupFilePath: 'Invoke-AppDeployToolkit.exe',
