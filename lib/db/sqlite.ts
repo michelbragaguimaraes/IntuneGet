@@ -12,9 +12,9 @@ import type { DatabaseAdapter, PackagingJob, UploadHistoryRecord } from './types
 let db: Database.Database | null = null;
 
 /**
- * Get or create the SQLite database instance
+ * Get or create the SQLite database instance (exported for direct use)
  */
-function getDb(): Database.Database {
+export function getDb(): Database.Database {
   if (db) return db;
 
   const dbPath = process.env.DATABASE_PATH || './data/intuneget.db';

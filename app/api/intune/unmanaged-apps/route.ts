@@ -7,7 +7,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { createServerClient, isSupabaseConfigured } from '@/lib/supabase';
 import { resolveTargetTenantId } from '@/lib/msp/tenant-resolution';
 import { parseAccessToken } from '@/lib/auth-utils';
-import BetterSqlite3 from 'better-sqlite3';
+import { getDb as getSqliteDb } from '@/lib/db/sqlite';
 import { matchDiscoveredApp, filterUserApps, isSystemApp, normalizeAppName } from '@/lib/matching/app-matcher';
 import { compareVersions } from '@/lib/version-compare';
 import type {
@@ -67,16 +67,9 @@ export async function GET(request: NextRequest) {
       }
     }
 
-    // Helper: open SQLite DB (only used in non-Supabase mode)
-    const openSqlite = () => {
-      const db = new BetterSqlite3(process.env.DATABASE_PATH || './data/intuneget.db');
-      db.pragma('journal_mode = WAL');
-      return db;
-    };
-
     // SQLite cache check (mirrors Supabase cache block below)
     if (!forceRefresh && !isSupabaseConfigured()) {
-      const db = openSqlite();
+      const db = getSqliteDb(); // runs initializeSchema on first call
       try {
         const cachedApps = db.prepare(
           `SELECT * FROM discovered_apps_cache WHERE tenant_id = ? ORDER BY device_count DESC`
@@ -110,14 +103,11 @@ export async function GET(request: NextRequest) {
                 lastSynced: cached.last_synced as string,
               }));
 
-            db.close();
             return NextResponse.json({ apps, total: apps.length, lastSynced: cachedApps[0].last_synced, fromCache: true } as UnmanagedAppsResponse);
           }
         }
       } catch {
         // Cache miss or schema not ready — fall through to Graph API fetch
-      } finally {
-        try { db.close(); } catch { /* ignore */ }
       }
     }
 
@@ -353,8 +343,7 @@ export async function GET(request: NextRequest) {
     } else {
       // SQLite cache write
       try {
-        const db = new BetterSqlite3(process.env.DATABASE_PATH || './data/intuneget.db');
-        db.pragma('journal_mode = WAL');
+        const db = getSqliteDb(); // schema already initialized
         db.prepare(`DELETE FROM discovered_apps_cache WHERE tenant_id = ?`).run(tenantId);
         const insert = db.prepare(`
           INSERT OR REPLACE INTO discovered_apps_cache
@@ -382,7 +371,6 @@ export async function GET(request: NextRequest) {
           }
         });
         insertMany(cacheRecords);
-        db.close();
       } catch (e) {
         console.error('[SQLite] Failed to write discovered_apps_cache:', e);
       }
