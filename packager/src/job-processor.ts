@@ -21,6 +21,8 @@ interface PackagingResult {
     profileIdentifier: string;
     fileDigest: string;
     fileDigestAlgorithm: string;
+    unencryptedContentSize: number;
+    encryptedContentSize: number;
   };
 }
 
@@ -574,6 +576,8 @@ Catch {
         ProfileIdentifier = $xml.ApplicationInfo.EncryptionInfo.ProfileIdentifier
         FileDigest = $xml.ApplicationInfo.EncryptionInfo.FileDigest
         FileDigestAlgorithm = $xml.ApplicationInfo.EncryptionInfo.FileDigestAlgorithm
+        UnencryptedContentSize = $xml.ApplicationInfo.UnencryptedContentSize
+        EncryptedContentSize = $xml.ApplicationInfo.EncryptedContentSize
       } | ConvertTo-Json
     `;
 
@@ -588,6 +592,8 @@ Catch {
       profileIdentifier: encryptionData.ProfileIdentifier,
       fileDigest: encryptionData.FileDigest,
       fileDigestAlgorithm: encryptionData.FileDigestAlgorithm,
+      unencryptedContentSize: parseInt(encryptionData.UnencryptedContentSize || '0', 10),
+      encryptedContentSize: parseInt(encryptionData.EncryptedContentSize || '0', 10),
     };
   }
 

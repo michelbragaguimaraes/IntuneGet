@@ -117,14 +117,15 @@ export class IntuneUploader {
     // Step 3: Extract encrypted .bin from .intunewin zip and create content file (15%)
     await onProgress?.(15, 'Preparing file upload...');
     const encryptedBinPath = await this.extractEncryptedBin(intunewinPath);
-    const fileInfo = await fs.promises.stat(encryptedBinPath);
-    const encryptedSize = fileInfo.size;
+    const encryptedSize = encryptionInfo.encryptedContentSize || (await fs.promises.stat(encryptedBinPath)).size;
+    const unencryptedSize = encryptionInfo.unencryptedContentSize || encryptedSize;
 
     const contentFile = await this.createContentFile(
       graphClient,
       app.id,
       contentVersion.id,
       path.basename(encryptedBinPath),
+      unencryptedSize,
       encryptedSize
     );
     this.logger.info('Created content file', { contentFileId: contentFile.id });
@@ -264,7 +265,8 @@ export class IntuneUploader {
     appId: string,
     contentVersionId: string,
     fileName: string,
-    size: number
+    size: number,
+    sizeEncrypted: number
   ): Promise<{ id: string }> {
     const response = await graphClient.post<{ id: string }>(
       `/deviceAppManagement/mobileApps/${appId}/microsoft.graph.win32LobApp/contentVersions/${contentVersionId}/files`,
@@ -272,7 +274,7 @@ export class IntuneUploader {
         '@odata.type': '#microsoft.graph.mobileAppContentFile',
         name: fileName,
         size: size,
-        sizeEncrypted: size,
+        sizeEncrypted: sizeEncrypted,
         isDependency: false,
       }
     );
