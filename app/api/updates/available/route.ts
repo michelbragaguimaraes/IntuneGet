@@ -5,6 +5,7 @@
 
 import { NextRequest, NextResponse } from 'next/server';
 import { createServerClient, isSupabaseConfigured } from '@/lib/supabase';
+import { getDb as getSqliteDb } from '@/lib/db/sqlite';
 import { parseAccessToken } from '@/lib/auth-utils';
 import { compareVersions } from '@/lib/version-compare';
 import type { AvailableUpdate } from '@/types/update-policies';
@@ -29,7 +30,69 @@ export async function GET(request: NextRequest) {
     const criticalOnly = searchParams.get('critical_only') === 'true';
 
     if (!isSupabaseConfigured()) {
-      return NextResponse.json({ updates: [], count: 0, criticalCount: 0 });
+      // SQLite path
+      const sqliteDatabase = getSqliteDb();
+
+      // Build query conditions
+      const conditions: string[] = ['user_id = ?'];
+      const params: unknown[] = [user.userId];
+
+      if (tenantId) {
+        conditions.push('tenant_id = ?');
+        params.push(tenantId);
+      }
+      if (!includeDismissed) {
+        conditions.push('dismissed_at IS NULL');
+      }
+      if (criticalOnly) {
+        conditions.push('is_critical = 1');
+      }
+
+      const whereClause = conditions.join(' AND ');
+      const rawUpdates = sqliteDatabase.prepare(
+        `SELECT * FROM update_check_results WHERE ${whereClause} ORDER BY detected_at DESC`
+      ).all(...params) as Record<string, unknown>[];
+
+      if (rawUpdates.length === 0) {
+        return NextResponse.json({ updates: [], count: 0, criticalCount: 0 });
+      }
+
+      // Check which apps were deployed via IntuneGet (upload_history)
+      const wingetIds = [...new Set(rawUpdates.map((u) => u.winget_id as string))];
+      const phPlaceholders = wingetIds.map(() => '?').join(', ');
+      let deployedRows: Array<{ winget_id: string; intune_tenant_id: string }> = [];
+      if (wingetIds.length > 0) {
+        let deployedSql = `SELECT winget_id, intune_tenant_id FROM upload_history WHERE user_id = ? AND winget_id IN (${phPlaceholders})`;
+        const deployedParams: unknown[] = [user.userId, ...wingetIds];
+        if (tenantId) {
+          deployedSql += ' AND intune_tenant_id = ?';
+          deployedParams.push(tenantId);
+        }
+        deployedRows = sqliteDatabase.prepare(deployedSql).all(...deployedParams) as typeof deployedRows;
+      }
+
+      const deployedSet = new Set<string>();
+      for (const d of deployedRows) {
+        deployedSet.add(`${d.winget_id}:${d.intune_tenant_id}`);
+      }
+
+      const updatesWithPolicies: AvailableUpdate[] = rawUpdates
+        .map((update) => ({
+          ...(update as Omit<AvailableUpdate, 'has_prior_deployment' | 'policy'>),
+          is_critical: Boolean(update.is_critical),
+          has_prior_deployment: deployedSet.has(`${update.winget_id}:${update.tenant_id}`),
+          policy: null,
+        }))
+        .filter((u) => u.current_version !== 'Unknown')
+        .filter((u) => compareVersions(u.current_version as string, u.latest_version as string) < 0);
+
+      const criticalCount = updatesWithPolicies.filter((u) => u.is_critical).length;
+
+      return NextResponse.json({
+        updates: updatesWithPolicies,
+        count: updatesWithPolicies.length,
+        criticalCount,
+      });
     }
 
     const supabase = createServerClient();

@@ -209,6 +209,28 @@ function initializeSchema(db: Database.Database): void {
       created_at TEXT DEFAULT (datetime('now'))
     );
   `);
+
+  // Create update_check_results table
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS update_check_results (
+      id TEXT PRIMARY KEY DEFAULT (lower(hex(randomblob(16)))),
+      user_id TEXT NOT NULL,
+      tenant_id TEXT NOT NULL,
+      winget_id TEXT NOT NULL,
+      intune_app_id TEXT NOT NULL,
+      display_name TEXT NOT NULL,
+      current_version TEXT,
+      latest_version TEXT,
+      is_critical INTEGER DEFAULT 0,
+      large_icon_type TEXT,
+      large_icon_value TEXT,
+      dismissed_at TEXT,
+      detected_at TEXT NOT NULL DEFAULT (datetime('now')),
+      updated_at TEXT NOT NULL DEFAULT (datetime('now')),
+      UNIQUE(user_id, tenant_id, winget_id, intune_app_id)
+    );
+    CREATE INDEX IF NOT EXISTS idx_update_check_results_user ON update_check_results(user_id, tenant_id);
+  `);
 }
 
 /**

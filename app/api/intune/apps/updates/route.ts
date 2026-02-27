@@ -5,7 +5,8 @@
  */
 
 import { NextRequest, NextResponse } from 'next/server';
-import { createServerClient } from '@/lib/supabase';
+import { createServerClient, isSupabaseConfigured } from '@/lib/supabase';
+import { getDb as getSqliteDb } from '@/lib/db/sqlite';
 import { resolveTargetTenantId } from '@/lib/msp/tenant-resolution';
 import {
   isValidWingetId,
@@ -70,35 +71,42 @@ export async function GET(request: NextRequest) {
       );
     }
 
-    // Verify admin consent
-    const supabase = createServerClient();
+    // Verify admin consent (Supabase mode only)
     const mspTenantId = request.headers.get('X-MSP-Tenant-Id');
+    let tenantId: string;
+    let supabase: ReturnType<typeof createServerClient> | null = null;
 
-    const tenantResolution = await resolveTargetTenantId({
-      supabase,
-      userId: user.userId,
-      tokenTenantId: user.tenantId,
-      requestedTenantId: mspTenantId,
-    });
+    if (isSupabaseConfigured()) {
+      supabase = createServerClient();
 
-    if (tenantResolution.errorResponse) {
-      return tenantResolution.errorResponse;
-    }
+      const tenantResolution = await resolveTargetTenantId({
+        supabase,
+        userId: user.userId,
+        tokenTenantId: user.tenantId,
+        requestedTenantId: mspTenantId,
+      });
 
-    const tenantId = tenantResolution.tenantId;
+      if (tenantResolution.errorResponse) {
+        return tenantResolution.errorResponse;
+      }
 
-    const { data: consentData, error: consentError } = await supabase
-      .from('tenant_consent')
-      .select('*')
-      .eq('tenant_id', tenantId)
-      .eq('is_active', true)
-      .single();
+      tenantId = tenantResolution.tenantId;
 
-    if (consentError || !consentData) {
-      return NextResponse.json(
-        { error: 'Admin consent not found' },
-        { status: 403 }
-      );
+      const { data: consentData, error: consentError } = await supabase
+        .from('tenant_consent')
+        .select('*')
+        .eq('tenant_id', tenantId)
+        .eq('is_active', true)
+        .single();
+
+      if (consentError || !consentData) {
+        return NextResponse.json(
+          { error: 'Admin consent not found' },
+          { status: 403 }
+        );
+      }
+    } else {
+      tenantId = user.tenantId;
     }
 
     // Get service principal token
@@ -144,14 +152,24 @@ export async function GET(request: NextRequest) {
     // Build explicit app-id to winget-id mappings from deployment history.
     const uploadHistoryWingetMap = new Map<string, string>();
     const uploadHistoryVersionMap = new Map<string, string>();
-    const { data: tenantHistoryRows } = await supabase
-      .from('upload_history')
-      .select('intune_app_id, winget_id, version')
-      .eq('user_id', user.userId)
-      .eq('intune_tenant_id', tenantId);
+
+    let tenantHistoryRows: UploadHistoryMappingRow[] | null = null;
+    if (supabase) {
+      const { data } = await supabase
+        .from('upload_history')
+        .select('intune_app_id, winget_id, version')
+        .eq('user_id', user.userId)
+        .eq('intune_tenant_id', tenantId);
+      tenantHistoryRows = data as UploadHistoryMappingRow[] | null;
+    } else {
+      const sqliteDatabase = getSqliteDb();
+      tenantHistoryRows = sqliteDatabase.prepare(
+        'SELECT intune_app_id, winget_id, version FROM upload_history WHERE user_id = ? AND intune_tenant_id = ?'
+      ).all(user.userId, tenantId) as UploadHistoryMappingRow[];
+    }
 
     if (tenantHistoryRows) {
-      for (const row of tenantHistoryRows as UploadHistoryMappingRow[]) {
+      for (const row of tenantHistoryRows) {
         if (row.intune_app_id && row.winget_id) {
           uploadHistoryWingetMap.set(row.intune_app_id, row.winget_id);
         }
@@ -188,7 +206,7 @@ export async function GET(request: NextRequest) {
       let match = matchAppToWinget(app);
 
       if (!match || match.confidence === 'low') {
-        match = await matchAppToWingetWithDatabase(app, supabase);
+        match = await matchAppToWingetWithDatabase(app, supabase as Parameters<typeof matchAppToWingetWithDatabase>[1]);
       }
 
       if (!match) {
@@ -220,13 +238,27 @@ export async function GET(request: NextRequest) {
     const wingetIdsToLookup = Array.from(new Set(matchedApps.map((m) => m.wingetId)));
 
     if (wingetIdsToLookup.length > 0) {
-      const { data: cachedPackages, error: cacheError } = await supabase
-        .from('curated_apps')
-        .select('winget_id, latest_version')
-        .in('winget_id', wingetIdsToLookup);
+      if (supabase) {
+        const { data: cachedPackages, error: cacheError } = await supabase
+          .from('curated_apps')
+          .select('winget_id, latest_version')
+          .in('winget_id', wingetIdsToLookup);
 
-      if (!cacheError && cachedPackages) {
-        for (const pkg of cachedPackages as CuratedPackageRow[]) {
+        if (!cacheError && cachedPackages) {
+          for (const pkg of cachedPackages as CuratedPackageRow[]) {
+            if (pkg.latest_version) {
+              versionMap.set(pkg.winget_id, pkg.latest_version);
+            }
+          }
+        }
+      } else {
+        const sqliteDatabase = getSqliteDb();
+        const placeholders = wingetIdsToLookup.map(() => '?').join(', ');
+        const sqlitePackages = sqliteDatabase.prepare(
+          `SELECT id as winget_id, latest_version FROM winget_packages WHERE id IN (${placeholders})`
+        ).all(...wingetIdsToLookup) as CuratedPackageRow[];
+
+        for (const pkg of sqlitePackages) {
           if (pkg.latest_version) {
             versionMap.set(pkg.winget_id, pkg.latest_version);
           }
