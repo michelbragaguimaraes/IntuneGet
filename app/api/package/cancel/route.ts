@@ -4,7 +4,7 @@
  */
 
 import { NextRequest, NextResponse } from 'next/server';
-import { createServerClient } from '@/lib/supabase';
+import { createServerClient, isSupabaseConfigured } from '@/lib/supabase';
 import { getDatabase } from '@/lib/db';
 import { cancelWorkflowRun, isGitHubActionsConfigured } from '@/lib/github-actions';
 import { parseAccessToken } from '@/lib/auth-utils';
@@ -48,24 +48,26 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    // Create Supabase client
-    const supabase = createServerClient();
-
     // Fetch the job to verify ownership and check status
-    const { data: job, error: fetchError } = await supabase
-      .from('packaging_jobs')
-      .select('*')
-      .eq('id', jobId)
-      .single();
+    const db = getDatabase();
+    const typedJob = await db.jobs.getById(jobId) as PackagingJobRow | null;
 
-    if (fetchError || !job) {
-      return NextResponse.json(
-        { error: 'Job not found' },
-        { status: 404 }
-      );
+    if (!typedJob) {
+      // Fallback to Supabase if configured
+      if (!isSupabaseConfigured()) {
+        return NextResponse.json({ error: 'Job not found' }, { status: 404 });
+      }
+      const supabase = createServerClient();
+      const { data: job, error: fetchError } = await supabase
+        .from('packaging_jobs').select('*').eq('id', jobId).single();
+      if (fetchError || !job) {
+        return NextResponse.json({ error: 'Job not found' }, { status: 404 });
+      }
     }
 
-    const typedJob = job as PackagingJobRow;
+    if (!typedJob) {
+      return NextResponse.json({ error: 'Job not found' }, { status: 404 });
+    }
 
     // Verify the user owns this job
     if (typedJob.user_id !== userId) {
@@ -141,63 +143,23 @@ export async function POST(request: NextRequest) {
     // Use token email, or fall back to job's stored user_email
     const cancelledByEmail = userEmail || typedJob.user_email || 'unknown';
 
-    // Try full update first with all cancellation fields
-    const fullUpdateData: PackagingJobUpdate = {
+    // Update job status to cancelled using the database adapter (works for both SQLite and Supabase)
+    const conditions = isActiveJob
+      ? { status: typedJob.status }
+      : undefined;
+
+    const updated = await db.jobs.update(jobId, {
       status: 'cancelled',
       cancelled_at: new Date().toISOString(),
       cancelled_by: cancelledByEmail,
-      updated_at: new Date().toISOString(),
       error_message: errorMessage,
-    };
+    }, conditions);
 
-    // Build query - use optimistic lock for active jobs, but allow force update for dismissed jobs
-    let updateQuery = supabase
-      .from('packaging_jobs')
-      .update(fullUpdateData)
-      .eq('id', jobId);
-
-    // Only use optimistic lock for active jobs (prevent race conditions)
-    // For dismissed jobs (completed/failed), we allow updating regardless of current status
-    if (isActiveJob) {
-      updateQuery = updateQuery.eq('status', typedJob.status);
-    } else {
-      // For non-active jobs, exclude already cancelled or deployed
-      updateQuery = updateQuery.not('status', 'in', '("cancelled","deployed")');
-    }
-
-    let { error: updateError } = await updateQuery;
-
-    // If full update fails (e.g., missing columns), try minimal update
-    if (updateError) {
-      // Fallback to minimal update with only essential fields
-      const minimalUpdateData: PackagingJobUpdate = {
-        status: 'cancelled',
-        updated_at: new Date().toISOString(),
-        error_message: errorMessage,
-      };
-
-      let minimalQuery = supabase
-        .from('packaging_jobs')
-        .update(minimalUpdateData)
-        .eq('id', jobId);
-
-      if (isActiveJob) {
-        minimalQuery = minimalQuery.eq('status', typedJob.status);
-      } else {
-        minimalQuery = minimalQuery.not('status', 'in', '("cancelled","deployed")');
-      }
-
-      const { error: minimalError } = await minimalQuery;
-
-      if (minimalError) {
-        return NextResponse.json(
-          { error: 'Failed to update job status. The job may have already changed status.' },
-          { status: 500 }
-        );
-      }
-
-      // Minimal update succeeded
-      updateError = null;
+    if (!updated) {
+      return NextResponse.json(
+        { error: 'Failed to update job status. The job may have already changed status.' },
+        { status: 500 }
+      );
     }
 
     // Clean up auto-update tracking
