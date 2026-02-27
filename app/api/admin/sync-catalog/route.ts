@@ -10,18 +10,13 @@ const WINGET_INDEX_URL =
   'https://raw.githubusercontent.com/svrooij/winget-pkgs-index/main/index.v2.json';
 
 interface WingetIndexPackage {
-  PackageIdentifier: string;
-  PackageName?: string;
+  PackageId: string;
+  Name?: string;
   Publisher?: string;
-  PackageVersion?: string;
-  ShortDescription?: string;
+  Version?: string;
+  Description?: string;
   Homepage?: string;
   Tags?: string[];
-}
-
-interface WingetIndex {
-  Packages?: WingetIndexPackage[];
-  packages?: WingetIndexPackage[];
 }
 
 async function runSync() {
@@ -32,8 +27,7 @@ async function runSync() {
     return;
   }
 
-  const index = (await response.json()) as WingetIndex;
-  const packages: WingetIndexPackage[] = index.Packages || index.packages || [];
+  const packages: WingetIndexPackage[] = (await response.json()) as WingetIndexPackage[];
 
   if (!Array.isArray(packages) || packages.length === 0) {
     console.error('[sync-catalog] No packages in index');
@@ -80,7 +74,7 @@ async function runSync() {
   const insertMany = db.transaction((pkgs: WingetIndexPackage[]) => {
     let inserted = 0;
     for (const pkg of pkgs) {
-      if (!pkg.PackageIdentifier) continue;
+      if (!pkg.PackageId) continue;
       upsert.run(
         pkg.PackageIdentifier,
         pkg.PackageName || pkg.PackageIdentifier,
