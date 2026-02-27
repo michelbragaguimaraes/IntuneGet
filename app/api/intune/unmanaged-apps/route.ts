@@ -221,7 +221,7 @@ export async function GET(request: NextRequest) {
     const { data: manualMappings } = isSupabaseConfigured() ? await supabase
       .from('manual_app_mappings')
       .select('*')
-      .or(`tenant_id.eq.${tenantId},tenant_id.is.null`);
+      .or(`tenant_id.eq.${tenantId},tenant_id.is.null`) : { data: [] };
 
     const manualMappingMap = new Map(
       manualMappings?.map(m => [m.discovered_app_name.toLowerCase(), m]) || []
