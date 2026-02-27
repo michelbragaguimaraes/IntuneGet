@@ -4,7 +4,7 @@
  */
 
 import { NextRequest, NextResponse } from 'next/server';
-import { createServerClient } from '@/lib/supabase';
+import { createServerClient, isSupabaseConfigured } from '@/lib/supabase';
 import { parseAccessToken } from '@/lib/auth-utils';
 import { compareVersions } from '@/lib/version-compare';
 import type { AvailableUpdate } from '@/types/update-policies';
@@ -27,6 +27,10 @@ export async function GET(request: NextRequest) {
     const tenantId = searchParams.get('tenant_id')?.trim() || null;
     const includeDismissed = searchParams.get('include_dismissed') === 'true';
     const criticalOnly = searchParams.get('critical_only') === 'true';
+
+    if (!isSupabaseConfigured()) {
+      return NextResponse.json({ updates: [], count: 0, criticalCount: 0 });
+    }
 
     const supabase = createServerClient();
 
@@ -179,6 +183,10 @@ export async function PATCH(request: NextRequest) {
         { error: 'action must be "dismiss" or "restore"' },
         { status: 400 }
       );
+    }
+
+    if (!isSupabaseConfigured()) {
+      return NextResponse.json({ success: true, updated: 0, action });
     }
 
     const supabase = createServerClient();
