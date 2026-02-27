@@ -175,9 +175,11 @@ export async function POST(request: NextRequest) {
       jobId,
       githubCancelled: githubCancelResult?.success ?? null,
     });
-  } catch {
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    console.error('[Cancel] Unhandled error:', err);
     return NextResponse.json(
-      { error: 'Internal server error' },
+      { error: 'Internal server error', detail: message },
       { status: 500 }
     );
   }
