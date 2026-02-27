@@ -110,12 +110,16 @@ export class JobProcessor {
         displayName: job.display_name,
       });
     } finally {
-      // Cleanup job work directory
-      try {
-        await fs.promises.rm(jobWorkDir, { recursive: true, force: true });
-        this.logger.debug('Cleaned up job work directory', { path: jobWorkDir });
-      } catch {
-        this.logger.warn('Failed to cleanup job work directory', { path: jobWorkDir });
+      // Cleanup job work directory (skip if KEEP_WORK_DIR=1 for debugging)
+      if (process.env.KEEP_WORK_DIR !== '1') {
+        try {
+          await fs.promises.rm(jobWorkDir, { recursive: true, force: true });
+          this.logger.debug('Cleaned up job work directory', { path: jobWorkDir });
+        } catch {
+          this.logger.warn('Failed to cleanup job work directory', { path: jobWorkDir });
+        }
+      } else {
+        this.logger.info('Skipping cleanup (KEEP_WORK_DIR=1)', { path: jobWorkDir });
       }
     }
   }
