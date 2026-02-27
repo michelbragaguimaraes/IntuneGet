@@ -512,12 +512,13 @@ export const sqliteDb: DatabaseAdapter = {
      */
     async deleteById(id: string): Promise<boolean> {
       const database = getDb();
-      // Clear FK reference in msp_batch_deployment_items if the table exists
+      // Clear FK references before deleting
       try {
         database.prepare('UPDATE msp_batch_deployment_items SET packaging_job_id = NULL WHERE packaging_job_id = ?').run(id);
-      } catch {
-        // Table may not exist in self-hosted mode
-      }
+      } catch { /* table may not exist */ }
+      try {
+        database.prepare('UPDATE upload_history SET packaging_job_id = NULL WHERE packaging_job_id = ?').run(id);
+      } catch { /* table may not exist */ }
       const stmt = database.prepare('DELETE FROM packaging_jobs WHERE id = ?');
       const result = stmt.run(id);
       return result.changes > 0;
