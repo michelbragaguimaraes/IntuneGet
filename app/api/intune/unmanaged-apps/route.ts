@@ -191,7 +191,8 @@ export async function GET(request: NextRequest) {
           },
         });
         if (graphResponse.status !== 429) break;
-        const retryAfter = parseInt(graphResponse.headers.get('Retry-After') || '10', 10);
+        const retryAfter = parseInt(graphResponse.headers.get('Retry-After') || '15', 10);
+        console.warn(`[Graph] 429 received, waiting ${retryAfter}s before retry (attempt ${attempt + 1}/5)`);
         await new Promise(r => setTimeout(r, retryAfter * 1000));
       }
 
@@ -206,6 +207,15 @@ export async function GET(request: NextRequest) {
               permissionRequired: 'DeviceManagementManagedDevices.Read.All'
             },
             { status: 403 }
+          );
+        }
+
+        // On persistent 429, return empty results so the UI doesn't keep hammering Graph
+        if (graphResponse?.status === 429) {
+          console.warn('[Graph] Persistent 429 after all retries — returning empty results to avoid thundering herd');
+          return NextResponse.json(
+            { apps: [], total: 0, lastSynced: new Date().toISOString(), fromCache: false, throttled: true },
+            { status: 200 }
           );
         }
 
