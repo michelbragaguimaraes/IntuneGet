@@ -395,28 +395,15 @@ export async function POST(request: NextRequest): Promise<NextResponse<ConsentVe
     const userId = userInfo.userId;
     const userEmail = userInfo.userEmail;
 
+    if (isSupabaseConfigured()) {
     const supabase = createServerClient();
     const mspTenantId = request.headers.get('X-MSP-Tenant-Id');
-
-    const tenantResolution = await resolveTargetTenantId({
-      supabase,
-      userId,
-      tokenTenantId: tenantId,
-      requestedTenantId: mspTenantId,
-    });
-
+    const tenantResolution = await resolveTargetTenantId({ supabase, userId, tokenTenantId: tenantId, requestedTenantId: mspTenantId });
     if (tenantResolution.errorResponse) {
-      return NextResponse.json(
-        {
-          verified: false,
-          tenantId: tenantResolution.tenantId,
-          message: 'Not authorized to verify consent for this tenant',
-        },
-        { status: 403 }
-      );
+      return NextResponse.json({ verified: false, tenantId: tenantResolution.tenantId, message: 'Not authorized to verify consent for this tenant' }, { status: 403 });
     }
-
     tenantId = tenantResolution.tenantId;
+  }
 
     // First, check if we have a cached consent record in the database
     const hasStoredConsent = await checkStoredConsent(tenantId);
