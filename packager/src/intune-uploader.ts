@@ -26,6 +26,8 @@ export interface EncryptionInfo {
   profileIdentifier: string;
   fileDigest: string;
   fileDigestAlgorithm: string;
+  unencryptedContentSize?: number;
+  encryptedContentSize?: number;
 }
 
 type ProgressCallback = (percent: number, message: string) => Promise<void>;
