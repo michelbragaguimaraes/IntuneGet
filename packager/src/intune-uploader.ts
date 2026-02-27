@@ -111,16 +111,17 @@ export class IntuneUploader {
     const contentVersion = await this.createContentVersion(graphClient, app.id);
     this.logger.info('Created content version', { contentVersionId: contentVersion.id });
 
-    // Step 3: Create content file (15%)
+    // Step 3: Extract encrypted .bin from .intunewin zip and create content file (15%)
     await onProgress?.(15, 'Preparing file upload...');
-    const fileInfo = await fs.promises.stat(intunewinPath);
+    const encryptedBinPath = await this.extractEncryptedBin(intunewinPath);
+    const fileInfo = await fs.promises.stat(encryptedBinPath);
     const encryptedSize = fileInfo.size;
 
     const contentFile = await this.createContentFile(
       graphClient,
       app.id,
       contentVersion.id,
-      path.basename(intunewinPath),
+      path.basename(encryptedBinPath),
       encryptedSize
     );
     this.logger.info('Created content file', { contentFileId: contentFile.id });
@@ -138,7 +139,7 @@ export class IntuneUploader {
     // Step 5: Upload file chunks (25-80%)
     await onProgress?.(25, 'Uploading package...');
     await this.uploadFileChunks(
-      intunewinPath,
+      encryptedBinPath,
       uploadInfo.azureStorageUri,
       async (percent) => {
         // Map chunk upload progress (0-100) to overall (25-80)
@@ -389,6 +390,28 @@ export class IntuneUploader {
   /**
    * Commit the content file with encryption info
    */
+  /**
+   * Extract the encrypted .bin file from inside the .intunewin zip
+   * The .intunewin is a ZIP containing IntunePackage.intunewin (the encrypted content)
+   */
+  private async extractEncryptedBin(intunewinPath: string): Promise<string> {
+    const outputDir = path.dirname(intunewinPath);
+    const script = `
+      Add-Type -AssemblyName System.IO.Compression.FileSystem
+      $zip = [System.IO.Compression.ZipFile]::OpenRead('${intunewinPath.replace(/'/g, "''")}')
+      $entry = $zip.Entries | Where-Object { $_.Name -like '*.intunewin' } | Select-Object -First 1
+      if (-not $entry) {
+        $entry = $zip.Entries | Where-Object { $_.Name -like '*.bin' } | Select-Object -First 1
+      }
+      $outPath = Join-Path '${outputDir.replace(/'/g, "''")}' $entry.Name
+      [System.IO.Compression.ZipFileExtensions]::ExtractToFile($entry, $outPath, $true)
+      $zip.Dispose()
+      Write-Output $outPath
+    `;
+    const result = await this.runPowerShell(script);
+    return result.trim();
+  }
+
   private async commitFile(
     graphClient: GraphClient,
     appId: string,
