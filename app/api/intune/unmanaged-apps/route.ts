@@ -137,18 +137,24 @@ export async function GET(request: NextRequest) {
     let nextUrl: string | null = `${GRAPH_API_BASE}/deviceManagement/detectedApps?$top=100&$orderby=deviceCount desc`;
 
     while (nextUrl) {
-      const graphResponse: Response = await fetch(nextUrl, {
-        headers: {
-          Authorization: `Bearer ${graphToken}`,
-          'Content-Type': 'application/json',
-        },
-      });
+      let graphResponse: Response | null = null;
+      for (let attempt = 0; attempt < 5; attempt++) {
+        graphResponse = await fetch(nextUrl, {
+          headers: {
+            Authorization: `Bearer ${graphToken}`,
+            'Content-Type': 'application/json',
+          },
+        });
+        if (graphResponse.status !== 429) break;
+        const retryAfter = parseInt(graphResponse.headers.get('Retry-After') || '10', 10);
+        await new Promise(r => setTimeout(r, retryAfter * 1000));
+      }
 
-      if (!graphResponse.ok) {
-        const errorText = await graphResponse.text();
+      if (!graphResponse || !graphResponse.ok) {
+        const errorText = await graphResponse?.text() ?? '';
 
         // Check for permission error
-        if (graphResponse.status === 403 && errorText.includes('DeviceManagementManagedDevices')) {
+        if (graphResponse?.status === 403 && errorText.includes('DeviceManagementManagedDevices')) {
           return NextResponse.json(
             {
               error: 'Missing required permission: DeviceManagementManagedDevices.Read.All. Please add this permission to your Azure AD app registration and grant admin consent.',
@@ -160,7 +166,7 @@ export async function GET(request: NextRequest) {
 
         return NextResponse.json(
           { error: 'Failed to fetch unmanaged apps from Intune' },
-          { status: graphResponse.status }
+          { status: graphResponse?.status ?? 500 }
         );
       }
 
