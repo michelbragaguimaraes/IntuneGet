@@ -4,6 +4,9 @@
 
 import * as fs from 'fs';
 import * as path from 'path';
+import { execFile } from 'child_process';
+import { promisify } from 'util';
+const execFileAsync = promisify(execFile);
 import { PackagerConfig } from './config.js';
 import { PackagingJob } from './job-poller.js';
 import { GraphClient } from './graph-client.js';
@@ -408,8 +411,8 @@ export class IntuneUploader {
       $zip.Dispose()
       Write-Output $outPath
     `;
-    const result = await this.runPowerShell(script);
-    return result.trim();
+    const { stdout } = await execFileAsync('powershell.exe', ['-NoProfile', '-NonInteractive', '-Command', script]);
+    return stdout.trim();
   }
 
   private async commitFile(
