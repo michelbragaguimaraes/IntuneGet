@@ -62,7 +62,7 @@ export async function GET(request: NextRequest) {
 
     if (!graphToken) {
       return NextResponse.json(
-        { error: 'Failed to get Graph API token' },
+        { error: 'Failed to get Graph API token — check AZURE_AD_CLIENT_SECRET and NEXT_PUBLIC_AZURE_AD_CLIENT_ID' },
         { status: 500 }
       );
     }
@@ -74,9 +74,10 @@ export async function GET(request: NextRequest) {
       groups,
       count: groups.length,
     });
-  } catch {
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
     return NextResponse.json(
-      { error: 'Failed to fetch groups' },
+      { error: 'Failed to fetch groups', detail: message },
       { status: 500 }
     );
   }
