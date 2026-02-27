@@ -205,8 +205,8 @@ export async function GET(request: NextRequest) {
 
       let match = matchAppToWinget(app);
 
-      if (!match || match.confidence === 'low') {
-        match = await matchAppToWingetWithDatabase(app, supabase as Parameters<typeof matchAppToWingetWithDatabase>[1]);
+      if ((!match || match.confidence === 'low') && supabase) {
+        match = await matchAppToWingetWithDatabase(app, supabase);
       }
 
       if (!match) {
