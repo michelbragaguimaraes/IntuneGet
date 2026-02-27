@@ -81,7 +81,7 @@ export async function POST(request: NextRequest) {
     const terminalStatuses = ['completed', 'failed', 'cancelled', 'duplicate_skipped', 'deployed'];
     if (dismiss && terminalStatuses.includes(typedJob.status)) {
       // Run auto-update cleanup before deleting (defense-in-depth for stuck jobs)
-      if (typedJob.is_auto_update) {
+      if (typedJob.is_auto_update && isSupabaseConfigured()) {
         const dismissStatus = (typedJob.status === 'deployed' || typedJob.status === 'duplicate_skipped')
           ? typedJob.status as 'deployed' | 'duplicate_skipped'
           : 'cancelled';
@@ -162,10 +162,12 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    // Clean up auto-update tracking
-    handleAutoUpdateJobCompletion(jobId, 'cancelled', errorMessage).catch((err) => {
-      console.error('[Cancel] Auto-update cleanup error:', err);
-    });
+    // Clean up auto-update tracking (Supabase only)
+    if (isSupabaseConfigured()) {
+      handleAutoUpdateJobCompletion(jobId, 'cancelled', errorMessage).catch((err) => {
+        console.error('[Cancel] Auto-update cleanup error:', err);
+      });
+    }
 
     return NextResponse.json({
       success: true,
