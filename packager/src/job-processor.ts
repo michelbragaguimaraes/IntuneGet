@@ -356,7 +356,7 @@ Try {
     ##* VARIABLE DECLARATION
     ##*===============================================
     ## Variables: Application
-    [String]$appVendor = '${job.publisher.replace(/'/g, "''")}'
+    [String]$appVendor = '${(job.publisher || '').replace(/'/g, "''")}'
     [String]$appName = '${job.display_name.replace(/'/g, "''")}'
     [String]$appVersion = '${job.version}'
     [String]$appArch = '${job.architecture}'
@@ -464,7 +464,7 @@ Catch {
         }
         Set-ItemProperty -Path $regPath -Name 'Version' -Value '${job.version}' -Type String -Force
         Set-ItemProperty -Path $regPath -Name 'DisplayName' -Value '${job.display_name.replace(/'/g, "''")}' -Type String -Force
-        Set-ItemProperty -Path $regPath -Name 'Publisher' -Value '${job.publisher.replace(/'/g, "''")}' -Type String -Force
+        Set-ItemProperty -Path $regPath -Name 'Publisher' -Value '${(job.publisher || '').replace(/'/g, "''")}' -Type String -Force
         Set-ItemProperty -Path $regPath -Name 'InstalledOn' -Value (Get-Date -Format 'yyyy-MM-dd HH:mm:ss') -Type String -Force
         Write-Log -Message "Created IntuneGet detection marker at $regPath" -Source 'Post-Installation'`;
   }
