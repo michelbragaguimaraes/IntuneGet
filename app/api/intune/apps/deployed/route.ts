@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { createServerClient } from '@/lib/supabase';
+import { createServerClient, isSupabaseConfigured } from '@/lib/supabase';
 import { parseAccessToken } from '@/lib/auth-utils';
 import { resolveTargetTenantId } from '@/lib/msp/tenant-resolution';
 
@@ -15,6 +15,23 @@ export async function GET(request: NextRequest) {
         { error: 'Authentication required' },
         { status: 401 }
       );
+    }
+
+    // SQLite self-hosted fallback
+    if (!isSupabaseConfigured()) {
+      const Database = require('better-sqlite3');
+      const db = new Database(process.env.DATABASE_PATH || './data/intuneget.db');
+
+      const rows = db.prepare(`
+        SELECT DISTINCT winget_id FROM upload_history WHERE user_id = ?
+      `).all(user.userId) as Array<{ winget_id: string }>;
+
+      const deployedWingetIds = rows.map((r) => r.winget_id).filter(Boolean);
+
+      return NextResponse.json({
+        deployedWingetIds,
+        count: deployedWingetIds.length,
+      });
     }
 
     const supabase = createServerClient();

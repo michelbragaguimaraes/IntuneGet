@@ -4,7 +4,7 @@
  */
 
 import { NextRequest, NextResponse } from 'next/server';
-import { createServerClient } from '@/lib/supabase';
+import { isSupabaseConfigured,  createServerClient } from '@/lib/supabase';
 import { getMspCustomerConsentUrl } from '@/lib/msal-config';
 import { parseAccessToken, signConsentState, getBaseUrl } from '@/lib/auth-utils';
 import type { MspManagedTenant, ConsentStatus } from '@/types/msp';
@@ -46,7 +46,11 @@ export async function POST(
   request: NextRequest,
   { params }: { params: Promise<{ id: string }> }
 ) {
-  try {
+  try {    // Self-hosted SQLite stub: return empty/default when Supabase not configured
+    if (!isSupabaseConfigured()) {
+      return NextResponse.json({ data: [], items: [], count: 0, message: 'Feature requires Supabase configuration' }, { status: 200 });
+    }
+
     const user = await parseAccessToken(request.headers.get('Authorization'));
     if (!user) {
       return NextResponse.json(

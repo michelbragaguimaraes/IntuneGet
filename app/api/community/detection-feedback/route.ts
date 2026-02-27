@@ -4,7 +4,7 @@
  */
 
 import { NextRequest, NextResponse } from 'next/server';
-import { createServerClient } from '@/lib/supabase';
+import { isSupabaseConfigured,  createServerClient } from '@/lib/supabase';
 import { parseAccessToken } from '@/lib/auth-utils';
 import {
   feedbackSchema,
@@ -26,7 +26,11 @@ type DetectionRuleFeedbackInsert = Database['public']['Tables']['detection_rule_
  * Submit feedback on an app's detection rules
  */
 export async function POST(request: NextRequest) {
-  try {
+  try {    // Self-hosted SQLite stub: return empty/default when Supabase not configured
+    if (!isSupabaseConfigured()) {
+      return NextResponse.json({ data: [], items: [], count: 0, message: 'Feature requires Supabase configuration' }, { status: 200 });
+    }
+
     const user = await parseAccessToken(request.headers.get('Authorization'));
     if (!user) {
       return NextResponse.json(
@@ -122,7 +126,11 @@ export async function POST(request: NextRequest) {
  * Get feedback for an app (admin only or own feedback)
  */
 export async function GET(request: NextRequest) {
-  try {
+  try {    // Self-hosted SQLite stub: return empty/default when Supabase not configured
+    if (!isSupabaseConfigured()) {
+      return NextResponse.json({ data: [], items: [], count: 0, message: 'Feature requires Supabase configuration' }, { status: 200 });
+    }
+
     const user = await parseAccessToken(request.headers.get('Authorization'));
     if (!user) {
       return NextResponse.json(

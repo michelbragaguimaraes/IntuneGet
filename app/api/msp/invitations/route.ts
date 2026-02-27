@@ -6,7 +6,7 @@
 
 import { NextRequest, NextResponse } from 'next/server';
 import crypto from 'crypto';
-import { createServerClient } from '@/lib/supabase';
+import { isSupabaseConfigured,  createServerClient } from '@/lib/supabase';
 import { parseAccessToken } from '@/lib/auth-utils';
 import { hasPermission, type MspRole } from '@/lib/msp-permissions';
 import { invitationSchema, validateMspInput } from '@/lib/validators/msp';
@@ -75,7 +75,11 @@ interface ExistingMemberCheck {
  * List all invitations for the user's organization
  */
 export async function GET(request: NextRequest) {
-  try {
+  try {    // Self-hosted SQLite stub: return empty/default when Supabase not configured
+    if (!isSupabaseConfigured()) {
+      return NextResponse.json({ data: [], items: [], count: 0, message: 'Feature requires Supabase configuration' }, { status: 200 });
+    }
+
     const user = await parseAccessToken(request.headers.get('Authorization'));
     if (!user) {
       return NextResponse.json(
@@ -159,7 +163,11 @@ export async function GET(request: NextRequest) {
  * Create a new invitation and send email
  */
 export async function POST(request: NextRequest) {
-  try {
+  try {    // Self-hosted SQLite stub: return empty/default when Supabase not configured
+    if (!isSupabaseConfigured()) {
+      return NextResponse.json({ data: [], items: [], count: 0, message: 'Feature requires Supabase configuration' }, { status: 200 });
+    }
+
     const user = await parseAccessToken(request.headers.get('Authorization'));
     if (!user) {
       return NextResponse.json(
@@ -365,7 +373,11 @@ export async function POST(request: NextRequest) {
  * Cancel a pending invitation
  */
 export async function DELETE(request: NextRequest) {
-  try {
+  try {    // Self-hosted SQLite stub: return empty/default when Supabase not configured
+    if (!isSupabaseConfigured()) {
+      return NextResponse.json({ data: [], items: [], count: 0, message: 'Feature requires Supabase configuration' }, { status: 200 });
+    }
+
     const user = await parseAccessToken(request.headers.get('Authorization'));
     if (!user) {
       return NextResponse.json(

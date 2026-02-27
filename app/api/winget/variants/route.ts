@@ -1,8 +1,9 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
 import { getLocaleDisplay, countryCodeToFlag } from '@/lib/locale-utils';
+import { isSupabaseConfigured } from '@/lib/supabase';
 
-export const runtime = 'edge';
+// Removed 'export const runtime = 'edge'' - not compatible with SQLite (Node.js modules)
 
 export async function GET(request: NextRequest) {
   try {
@@ -14,6 +15,17 @@ export async function GET(request: NextRequest) {
         { error: 'Parameter "id" is required and must be a valid package identifier' },
         { status: 400 }
       );
+    }
+
+    // SQLite self-hosted fallback - no locale variant data in local DB, return empty
+    if (!isSupabaseConfigured()) {
+      return NextResponse.json({
+        parentId,
+        count: 0,
+        variants: [],
+      }, {
+        headers: { 'Cache-Control': 'public, max-age=300, s-maxage=600' },
+      });
     }
 
     const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;

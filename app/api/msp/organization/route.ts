@@ -5,7 +5,7 @@
  */
 
 import { NextRequest, NextResponse } from 'next/server';
-import { createServerClient } from '@/lib/supabase';
+import { createServerClient, isSupabaseConfigured } from '@/lib/supabase';
 import { parseAccessToken } from '@/lib/auth-utils';
 import type { Database } from '@/types/database';
 import type { SupabaseClient } from '@supabase/supabase-js';
@@ -53,6 +53,16 @@ export async function GET(request: NextRequest) {
         { error: 'Authentication required' },
         { status: 401 }
       );
+    }
+
+    // SQLite self-hosted fallback - return single-org stub
+    if (!isSupabaseConfigured()) {
+      const response: GetOrganizationResponse = {
+        organization: null,
+        stats: null,
+        isMspUser: false,
+      };
+      return NextResponse.json(response);
     }
 
     const supabase = createServerClient();
@@ -125,6 +135,14 @@ export async function POST(request: NextRequest) {
       return NextResponse.json(
         { error: 'Authentication required' },
         { status: 401 }
+      );
+    }
+
+    // SQLite self-hosted: MSP org creation not supported
+    if (!isSupabaseConfigured()) {
+      return NextResponse.json(
+        { error: 'MSP organization management requires Supabase configuration' },
+        { status: 501 }
       );
     }
 

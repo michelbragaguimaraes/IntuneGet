@@ -1,5 +1,8 @@
 import { NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
+import { isSupabaseConfigured } from "@/lib/supabase";
+import fs from "fs";
+import path from "path";
 
 interface HealthStatus {
   status: "healthy" | "degraded" | "unhealthy";
@@ -29,13 +32,22 @@ export async function GET() {
 
   // Check database connectivity
   try {
-    const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
-    const supabaseKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
+    if (!isSupabaseConfigured()) {
+      // SQLite: check if DB file exists (or data dir is accessible)
+      const dbPath = process.env.DATABASE_PATH || './data/intuneget.db';
+      const dbDir = path.dirname(dbPath);
+      const dbExists = fs.existsSync(dbPath);
+      const dirExists = fs.existsSync(dbDir);
+      status.services.database = dbExists || dirExists;
+    } else {
+      const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
+      const supabaseKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
 
-    if (supabaseUrl && supabaseKey) {
-      const supabase = createClient(supabaseUrl, supabaseKey);
-      const { error } = await supabase.from("apps").select("id").limit(1);
-      status.services.database = !error;
+      if (supabaseUrl && supabaseKey) {
+        const supabase = createClient(supabaseUrl, supabaseKey);
+        const { error } = await supabase.from("apps").select("id").limit(1);
+        status.services.database = !error;
+      }
     }
   } catch {
     status.services.database = false;

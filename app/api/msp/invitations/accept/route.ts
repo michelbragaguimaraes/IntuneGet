@@ -4,7 +4,7 @@
  */
 
 import { NextRequest, NextResponse } from 'next/server';
-import { createServerClient } from '@/lib/supabase';
+import { isSupabaseConfigured,  createServerClient } from '@/lib/supabase';
 import { parseAccessToken, resolveUserEmails } from '@/lib/auth-utils';
 import { invitationTokenSchema, validateMspInput } from '@/lib/validators/msp';
 import {
@@ -33,7 +33,11 @@ interface InvitationWithOrgName extends Pick<MspInvitationRow, 'email' | 'role' 
  * Accept an invitation using the token
  */
 export async function POST(request: NextRequest) {
-  try {
+  try {    // Self-hosted SQLite stub: return empty/default when Supabase not configured
+    if (!isSupabaseConfigured()) {
+      return NextResponse.json({ data: [], items: [], count: 0, message: 'Feature requires Supabase configuration' }, { status: 200 });
+    }
+
     // Strict rate limiting for invitation acceptance (security measure)
     const rateLimitResponse = await applyRateLimit(getIpKey(request), STRICT_RATE_LIMIT);
     if (rateLimitResponse) return rateLimitResponse;
@@ -242,7 +246,11 @@ export async function POST(request: NextRequest) {
  * Validate an invitation token (for the accept page)
  */
 export async function GET(request: NextRequest) {
-  try {
+  try {    // Self-hosted SQLite stub: return empty/default when Supabase not configured
+    if (!isSupabaseConfigured()) {
+      return NextResponse.json({ data: [], items: [], count: 0, message: 'Feature requires Supabase configuration' }, { status: 200 });
+    }
+
     const { searchParams } = new URL(request.url);
     const token = searchParams.get('token');
 

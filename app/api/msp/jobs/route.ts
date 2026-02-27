@@ -4,7 +4,7 @@
  */
 
 import { NextRequest, NextResponse } from 'next/server';
-import { createServerClient } from '@/lib/supabase';
+import { isSupabaseConfigured,  createServerClient } from '@/lib/supabase';
 import { parseAccessToken } from '@/lib/auth-utils';
 import type { MspJob, GetMspJobsResponse } from '@/types/msp';
 import type { Database } from '@/types/database';
@@ -30,7 +30,11 @@ type ManagedTenantQueryResult = Pick<MspManagedTenantRow, 'tenant_id' | 'display
  * List jobs across all managed tenants for the user's MSP organization
  */
 export async function GET(request: NextRequest) {
-  try {
+  try {    // Self-hosted SQLite stub: return empty/default when Supabase not configured
+    if (!isSupabaseConfigured()) {
+      return NextResponse.json({ data: [], items: [], count: 0, message: 'Feature requires Supabase configuration' }, { status: 200 });
+    }
+
     const user = await parseAccessToken(request.headers.get('Authorization'));
     if (!user) {
       return NextResponse.json(

@@ -5,7 +5,7 @@
 
 import crypto from 'crypto';
 import { NextRequest, NextResponse } from 'next/server';
-import { createServerClient } from '@/lib/supabase';
+import { isSupabaseConfigured,  createServerClient } from '@/lib/supabase';
 import { addIssueComment, closeIssueWithLabel } from '@/lib/github-issues';
 
 const VALID_COMMANDS = {

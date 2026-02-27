@@ -1,7 +1,8 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
+import { isSupabaseConfigured } from '@/lib/supabase';
 
-export const runtime = 'edge';
+// Removed 'export const runtime = 'edge'' - not compatible with SQLite (Node.js modules)
 export const fetchCache = 'force-no-store';
 
 interface CuratedAppResult {
@@ -92,6 +93,49 @@ export async function GET(request: NextRequest) {
 
     const sanitizedLimit = Math.min(limit, 100);
 
+    // SQLite self-hosted fallback
+    if (!isSupabaseConfigured()) {
+      const Database = require('better-sqlite3');
+      const db = new Database(process.env.DATABASE_PATH || './data/intuneget.db');
+
+      const searchTerm = `%${query.trim()}%`;
+      let sql = `SELECT * FROM winget_packages WHERE (name LIKE ? OR publisher LIKE ? OR id LIKE ?)`;
+      const params: unknown[] = [searchTerm, searchTerm, searchTerm];
+
+      if (category) {
+        sql += ' AND category = ?';
+        params.push(category);
+      }
+
+      sql += ' ORDER BY popularity_rank ASC NULLS LAST, name ASC LIMIT ?';
+      params.push(sanitizedLimit);
+
+      const rows = db.prepare(sql).all(...params) as Array<{
+        id: string; name: string; publisher: string; latest_version: string;
+        description: string; homepage: string; category: string; tags: string;
+        icon_path: string; popularity_rank: number;
+      }>;
+
+      return NextResponse.json({
+        query,
+        count: rows.length,
+        packages: rows.map((p) => ({
+          id: p.id,
+          name: p.name,
+          publisher: p.publisher,
+          version: p.latest_version || '',
+          description: p.description,
+          homepage: p.homepage,
+          tags: p.tags ? JSON.parse(p.tags) : [],
+          category: p.category,
+          iconPath: p.icon_path,
+          popularityRank: p.popularity_rank,
+          appSource: 'win32',
+        })),
+        source: 'sqlite',
+      }, { headers: { 'Cache-Control': 'no-store, max-age=0' } });
+    }
+
     // Try curated apps search first
     const cachedResults = await searchCachedPackages(
       query,
@@ -126,8 +170,6 @@ export async function GET(request: NextRequest) {
       });
     }
 
-    // No results found - the enhanced search_curated_apps function already tried
-    // both FTS and ILIKE fallback, so return empty results
     return NextResponse.json({
       query,
       count: 0,

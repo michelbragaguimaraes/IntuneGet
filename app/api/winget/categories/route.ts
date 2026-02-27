@@ -1,13 +1,36 @@
 import { NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
 import { getCategories } from '@/lib/winget-api';
+import { isSupabaseConfigured } from '@/lib/supabase';
 
-export const runtime = 'edge';
+// Removed 'export const runtime = 'edge'' - not compatible with SQLite (Node.js modules)
 export const dynamic = 'force-dynamic';
 export const fetchCache = 'force-no-store';
 
 export async function GET() {
   try {
+    // SQLite self-hosted fallback
+    if (!isSupabaseConfigured()) {
+      const Database = require('better-sqlite3');
+      const db = new Database(process.env.DATABASE_PATH || './data/intuneget.db');
+
+      const rows = db.prepare(`
+        SELECT category, COUNT(*) as count
+        FROM winget_packages
+        WHERE category IS NOT NULL
+        GROUP BY category
+        ORDER BY count DESC
+      `).all() as Array<{ category: string; count: number }>;
+
+      const totalApps = (db.prepare('SELECT COUNT(*) as total FROM winget_packages').get() as { total: number }).total;
+
+      return NextResponse.json({
+        count: rows.length,
+        totalApps,
+        categories: rows.map((r) => ({ name: r.category, count: r.count })),
+      }, { headers: { 'Cache-Control': 'no-store, max-age=0' } });
+    }
+
     const categories = await getCategories();
 
     // Get actual total count of verified apps (not just sum of categories)

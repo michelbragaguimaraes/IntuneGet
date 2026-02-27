@@ -119,6 +119,50 @@ function initializeSchema(db: Database.Database): void {
     CREATE INDEX IF NOT EXISTS idx_upload_history_user_id ON upload_history(user_id);
     CREATE INDEX IF NOT EXISTS idx_upload_history_deployed_at ON upload_history(deployed_at);
   `);
+
+  // Create winget_packages table (for self-hosted catalog)
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS winget_packages (
+      id TEXT PRIMARY KEY,
+      name TEXT NOT NULL,
+      publisher TEXT,
+      latest_version TEXT,
+      description TEXT,
+      homepage TEXT,
+      category TEXT,
+      tags TEXT,
+      icon_path TEXT,
+      popularity_rank INTEGER,
+      last_synced_at TEXT
+    );
+    CREATE INDEX IF NOT EXISTS idx_winget_packages_name ON winget_packages(name);
+    CREATE INDEX IF NOT EXISTS idx_winget_packages_category ON winget_packages(category);
+  `);
+
+  // Create user_settings table
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS user_settings (
+      user_id TEXT PRIMARY KEY,
+      tenant_id TEXT,
+      email TEXT,
+      display_name TEXT,
+      preferences TEXT,
+      created_at TEXT DEFAULT (datetime('now')),
+      updated_at TEXT DEFAULT (datetime('now'))
+    );
+  `);
+
+  // Create tenant_consent table
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS tenant_consent (
+      tenant_id TEXT PRIMARY KEY,
+      consented_by_user_id TEXT,
+      consented_by_email TEXT,
+      consent_granted_at TEXT,
+      is_active INTEGER DEFAULT 1,
+      updated_at TEXT DEFAULT (datetime('now'))
+    );
+  `);
 }
 
 /**

@@ -4,7 +4,7 @@
  */
 
 import { NextRequest, NextResponse } from 'next/server';
-import { createServerClient } from '@/lib/supabase';
+import { isSupabaseConfigured,  createServerClient } from '@/lib/supabase';
 import { verifyConsentState, getBaseUrl } from '@/lib/auth-utils';
 import {
   logConsentCallback,

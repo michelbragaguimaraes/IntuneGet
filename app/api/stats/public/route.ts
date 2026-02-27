@@ -1,5 +1,6 @@
 import { NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
+import { isSupabaseConfigured } from '@/lib/supabase';
 
 const NO_STORE_HEADERS = {
   'Cache-Control': 'no-store, max-age=0, must-revalidate',
@@ -7,6 +8,24 @@ const NO_STORE_HEADERS = {
 
 export async function GET() {
   try {
+    // SQLite self-hosted fallback
+    if (!isSupabaseConfigured()) {
+      const Database = require('better-sqlite3');
+      const db = new Database(process.env.DATABASE_PATH || './data/intuneget.db');
+
+      const deployedRow = db.prepare(`SELECT COUNT(*) as count FROM upload_history`).get() as { count: number };
+      const catalogRow = db.prepare(`SELECT COUNT(*) as count FROM winget_packages`).get() as { count: number };
+
+      return NextResponse.json(
+        {
+          signinClicks: 0,
+          appsDeployed: deployedRow.count,
+          appsSupported: catalogRow.count,
+        },
+        { headers: NO_STORE_HEADERS }
+      );
+    }
+
     const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
     const supabaseServiceKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
 
