@@ -229,6 +229,7 @@ export class IntuneUploader {
         { returnCode: 1618, type: 'retry' },
       ],
       rules: [], // Will add detection/requirement rules later
+      detectionRules: this.buildDetectionRules(job),
     };
 
     const response = await graphClient.post<{ id: string }>('/deviceAppManagement/mobileApps', appBody);
