@@ -40,8 +40,11 @@ async function runSync() {
     return;
   }
 
+  const path = require('path');
   const Database = require('better-sqlite3');
-  const db = new Database(process.env.DATABASE_PATH || './data/intuneget.db');
+  const dbPath = process.env.DATABASE_PATH || path.join(process.cwd(), 'data', 'intuneget.db');
+  const db = new Database(dbPath);
+  console.log('[sync-catalog] Using DB at:', dbPath);
 
   db.exec(`
     CREATE TABLE IF NOT EXISTS winget_packages (
@@ -130,8 +133,10 @@ export async function GET() {
   }
 
   try {
+    const path = require('path');
     const Database = require('better-sqlite3');
-    const db = new Database(process.env.DATABASE_PATH || './data/intuneget.db');
+    const dbPath = process.env.DATABASE_PATH || path.join(process.cwd(), 'data', 'intuneget.db');
+    const db = new Database(dbPath);
 
     let count = 0;
     let lastSync: string | null = null;
