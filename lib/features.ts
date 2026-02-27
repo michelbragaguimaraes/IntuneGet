@@ -25,7 +25,8 @@ export interface FeatureFlags {
 export function getFeatureFlags(): FeatureFlags {
   const config = getAppConfig();
 
-  const localPackager = config.packager.mode === "local";
+  // SQLite mode implies local packager — there's no GitHub Actions or Supabase to fall back to
+  const localPackager = config.packager.mode === "local" || config.database.mode === "sqlite";
   const githubPipeline = Boolean(config.github.pat && config.github.owner && config.github.repo);
 
   return {
