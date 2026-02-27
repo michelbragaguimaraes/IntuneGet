@@ -76,11 +76,11 @@ async function runSync() {
     for (const pkg of pkgs) {
       if (!pkg.PackageId) continue;
       upsert.run(
-        pkg.PackageIdentifier,
-        pkg.PackageName || pkg.PackageIdentifier,
+        pkg.PackageId,
+        (pkg.Name || pkg.PackageId || 'Unknown').trim() || 'Unknown',
         pkg.Publisher || null,
-        pkg.PackageVersion || null,
-        pkg.ShortDescription || null,
+        pkg.Version || null,
+        pkg.Description || null,
         pkg.Homepage || null,
         pkg.Tags ? JSON.stringify(pkg.Tags) : null,
         now
