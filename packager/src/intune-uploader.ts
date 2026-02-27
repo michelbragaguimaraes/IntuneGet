@@ -228,7 +228,6 @@ export class IntuneUploader {
         { returnCode: 1641, type: 'hardReboot' },
         { returnCode: 1618, type: 'retry' },
       ],
-      rules: [], // Will add detection/requirement rules later
       detectionRules: this.buildDetectionRules(job),
     };
 
