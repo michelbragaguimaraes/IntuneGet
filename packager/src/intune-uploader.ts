@@ -886,7 +886,7 @@ export class IntuneUploader {
 
         if (ruleObj.type === 'file') {
           rules.push({
-            '@odata.type': '#microsoft.graph.win32LobAppFileSystemDetectionRule',
+            '@odata.type': '#microsoft.graph.win32LobAppFileSystemDetection',
             path: ruleObj.path,
             fileOrFolderName: ruleObj.fileOrFolderName,
             check32BitOn64System: ruleObj.check32BitOn64System || false,
@@ -896,7 +896,7 @@ export class IntuneUploader {
           });
         } else if (ruleObj.type === 'registry') {
           rules.push({
-            '@odata.type': '#microsoft.graph.win32LobAppRegistryDetectionRule',
+            '@odata.type': '#microsoft.graph.win32LobAppRegistryDetection',
             keyPath: ruleObj.keyPath,
             valueName: ruleObj.valueName,
             check32BitOn64System: ruleObj.check32BitOn64System || false,
@@ -906,14 +906,14 @@ export class IntuneUploader {
           });
         } else if (ruleObj.type === 'msi') {
           rules.push({
-            '@odata.type': '#microsoft.graph.win32LobAppProductCodeDetectionRule',
+            '@odata.type': '#microsoft.graph.win32LobAppProductCodeDetection',
             productCode: ruleObj.productCode,
             productVersionOperator: ruleObj.productVersionOperator || 'notConfigured',
             productVersion: ruleObj.productVersion,
           });
         } else if (ruleObj.type === 'script') {
           rules.push({
-            '@odata.type': '#microsoft.graph.win32LobAppPowerShellScriptDetectionRule',
+            '@odata.type': '#microsoft.graph.win32LobAppPowerShellScriptDetection',
             scriptContent: Buffer.from(ruleObj.scriptContent as string).toString('base64'),
             enforceSignatureCheck: ruleObj.enforceSignatureCheck || false,
             runAs32Bit: ruleObj.runAs32Bit || false,
@@ -925,7 +925,7 @@ export class IntuneUploader {
     // Add default detection rule if none specified
     if (rules.length === 0) {
       rules.push({
-        '@odata.type': '#microsoft.graph.win32LobAppFileSystemDetectionRule',
+        '@odata.type': '#microsoft.graph.win32LobAppFileSystemDetection',
         path: '%ProgramFiles%',
         fileOrFolderName: job.display_name.replace(/[^a-zA-Z0-9]/g, ''),
         check32BitOn64System: false,
