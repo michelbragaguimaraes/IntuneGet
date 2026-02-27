@@ -7,6 +7,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { createServerClient, isSupabaseConfigured } from '@/lib/supabase';
 import { resolveTargetTenantId } from '@/lib/msp/tenant-resolution';
 import { parseAccessToken } from '@/lib/auth-utils';
+import BetterSqlite3 from 'better-sqlite3';
 import { matchDiscoveredApp, filterUserApps, isSystemApp, normalizeAppName } from '@/lib/matching/app-matcher';
 import { compareVersions } from '@/lib/version-compare';
 import type {
@@ -63,6 +64,60 @@ export async function GET(request: NextRequest) {
         .single();
       if (consentError || !consentData) {
         return NextResponse.json({ error: 'Admin consent not found. Please complete the admin consent flow.' }, { status: 403 });
+      }
+    }
+
+    // Helper: open SQLite DB (only used in non-Supabase mode)
+    const openSqlite = () => {
+      const db = new BetterSqlite3(process.env.DATABASE_PATH || './data/intuneget.db');
+      db.pragma('journal_mode = WAL');
+      return db;
+    };
+
+    // SQLite cache check (mirrors Supabase cache block below)
+    if (!forceRefresh && !isSupabaseConfigured()) {
+      const db = openSqlite();
+      try {
+        const cachedApps = db.prepare(
+          `SELECT * FROM discovered_apps_cache WHERE tenant_id = ? ORDER BY device_count DESC`
+        ).all(tenantId) as Record<string, unknown>[];
+
+        if (cachedApps.length > 0) {
+          const lastSynced = new Date(cachedApps[0].last_synced as string).getTime();
+          if (Date.now() - lastSynced < CACHE_DURATION_MS) {
+            const claimedRows = db.prepare(
+              `SELECT discovered_app_id, status FROM claimed_apps WHERE tenant_id = ?`
+            ).all(tenantId) as Array<{ discovered_app_id: string; status: string }>;
+            const claimedMap = new Map(claimedRows.map(c => [c.discovered_app_id, c.status]));
+
+            const apps: UnmanagedApp[] = cachedApps
+              .filter(app => includeSystem || !isSystemApp(JSON.parse(app.app_data as string || '{}') as GraphUnmanagedApp))
+              .filter(app => claimedMap.get(app.discovered_app_id as string) !== 'deployed')
+              .map(cached => ({
+                id: cached.id as string,
+                discoveredAppId: cached.discovered_app_id as string,
+                displayName: cached.display_name as string,
+                version: cached.version as string | null,
+                publisher: cached.publisher as string | null,
+                deviceCount: cached.device_count as number,
+                platform: cached.platform as string,
+                matchStatus: cached.match_status as MatchStatus,
+                matchedPackageId: cached.matched_package_id as string | null,
+                matchedPackageName: null,
+                matchConfidence: cached.match_confidence as number | null,
+                isClaimed: claimedMap.has(cached.discovered_app_id as string),
+                claimStatus: claimedMap.get(cached.discovered_app_id as string) as UnmanagedApp['claimStatus'],
+                lastSynced: cached.last_synced as string,
+              }));
+
+            db.close();
+            return NextResponse.json({ apps, total: apps.length, lastSynced: cachedApps[0].last_synced, fromCache: true } as UnmanagedAppsResponse);
+          }
+        }
+      } catch {
+        // Cache miss or schema not ready — fall through to Graph API fetch
+      } finally {
+        try { db.close(); } catch { /* ignore */ }
       }
     }
 
@@ -290,15 +345,47 @@ export async function GET(request: NextRequest) {
     }));
 
     // Delete old cache entries for this tenant and insert new ones
-    if (isSupabaseConfigured()) await supabase
-      .from('discovered_apps_cache')
-      .delete()
-      .eq('tenant_id', tenantId);
-
-    if (cacheRecords.length > 0) {
-      await supabase
-        .from('discovered_apps_cache')
-        .upsert(cacheRecords, { onConflict: 'tenant_id,discovered_app_id' });
+    if (isSupabaseConfigured()) {
+      await supabase.from('discovered_apps_cache').delete().eq('tenant_id', tenantId);
+      if (cacheRecords.length > 0) {
+        await supabase.from('discovered_apps_cache').upsert(cacheRecords, { onConflict: 'tenant_id,discovered_app_id' });
+      }
+    } else {
+      // SQLite cache write
+      try {
+        const db = new BetterSqlite3(process.env.DATABASE_PATH || './data/intuneget.db');
+        db.pragma('journal_mode = WAL');
+        db.prepare(`DELETE FROM discovered_apps_cache WHERE tenant_id = ?`).run(tenantId);
+        const insert = db.prepare(`
+          INSERT OR REPLACE INTO discovered_apps_cache
+            (id, tenant_id, discovered_app_id, display_name, version, publisher,
+             device_count, platform, match_status, matched_package_id, match_confidence, app_data, last_synced)
+          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        `);
+        const insertMany = db.transaction((records: typeof cacheRecords) => {
+          for (const r of records) {
+            insert.run(
+              `${tenantId}-${r.discovered_app_id}`,
+              tenantId,
+              r.discovered_app_id,
+              r.display_name,
+              r.version ?? null,
+              r.publisher ?? null,
+              r.device_count ?? 0,
+              r.platform ?? null,
+              r.match_status ?? null,
+              r.matched_package_id ?? null,
+              r.match_confidence ?? null,
+              r.app_data ? JSON.stringify(r.app_data) : null,
+              r.last_synced,
+            );
+          }
+        });
+        insertMany(cacheRecords);
+        db.close();
+      } catch (e) {
+        console.error('[SQLite] Failed to write discovered_apps_cache:', e);
+      }
     }
 
     // Only hide deployed apps - pending/deploying/failed should remain visible

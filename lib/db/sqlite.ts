@@ -163,6 +163,52 @@ function initializeSchema(db: Database.Database): void {
       updated_at TEXT DEFAULT (datetime('now'))
     );
   `);
+
+  // Create discovered_apps_cache table (mirrors Supabase schema for unmanaged-apps caching)
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS discovered_apps_cache (
+      id TEXT PRIMARY KEY,
+      tenant_id TEXT NOT NULL,
+      discovered_app_id TEXT NOT NULL,
+      display_name TEXT NOT NULL,
+      version TEXT,
+      publisher TEXT,
+      device_count INTEGER DEFAULT 0,
+      platform TEXT,
+      match_status TEXT,
+      matched_package_id TEXT,
+      match_confidence REAL,
+      app_data TEXT,
+      last_synced TEXT NOT NULL DEFAULT (datetime('now'))
+    );
+    CREATE INDEX IF NOT EXISTS idx_discovered_apps_tenant ON discovered_apps_cache(tenant_id);
+    CREATE INDEX IF NOT EXISTS idx_discovered_apps_last_synced ON discovered_apps_cache(last_synced);
+  `);
+
+  // Create claimed_apps table
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS claimed_apps (
+      id TEXT PRIMARY KEY DEFAULT (lower(hex(randomblob(16)))),
+      tenant_id TEXT NOT NULL,
+      discovered_app_id TEXT NOT NULL,
+      status TEXT NOT NULL DEFAULT 'pending',
+      created_at TEXT DEFAULT (datetime('now')),
+      updated_at TEXT DEFAULT (datetime('now')),
+      UNIQUE(tenant_id, discovered_app_id)
+    );
+    CREATE INDEX IF NOT EXISTS idx_claimed_apps_tenant ON claimed_apps(tenant_id);
+  `);
+
+  // Create manual_app_mappings table
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS manual_app_mappings (
+      id TEXT PRIMARY KEY DEFAULT (lower(hex(randomblob(16)))),
+      tenant_id TEXT,
+      discovered_app_name TEXT NOT NULL,
+      winget_id TEXT NOT NULL,
+      created_at TEXT DEFAULT (datetime('now'))
+    );
+  `);
 }
 
 /**
