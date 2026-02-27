@@ -4,7 +4,7 @@
  */
 
 import { NextRequest, NextResponse } from 'next/server';
-import { createServerClient } from '@/lib/supabase';
+import { createServerClient, isSupabaseConfigured } from '@/lib/supabase';
 import { resolveTargetTenantId } from '@/lib/msp/tenant-resolution';
 import { parseAccessToken } from '@/lib/auth-utils';
 import { matchDiscoveredApp, filterUserApps, isSystemApp, normalizeAppName } from '@/lib/matching/app-matcher';
@@ -42,39 +42,32 @@ export async function GET(request: NextRequest) {
     const forceRefresh = searchParams.get('refresh') === 'true';
     const includeSystem = searchParams.get('includeSystem') === 'true';
 
-    const supabase = createServerClient();
-    const mspTenantId = request.headers.get('X-MSP-Tenant-Id');
-
-    const tenantResolution = await resolveTargetTenantId({
-      supabase,
-      userId: user.userId,
-      tokenTenantId: user.tenantId,
-      requestedTenantId: mspTenantId,
-    });
-
-    if (tenantResolution.errorResponse) {
-      return tenantResolution.errorResponse;
+    // In SQLite mode, skip MSP tenant resolution and use token tenant directly
+    let tenantId = user.tenantId;
+    const supabase = isSupabaseConfigured() ? createServerClient() : null as any;
+    if (isSupabaseConfigured()) {
+      const supabase = createServerClient();
+      const mspTenantId = request.headers.get('X-MSP-Tenant-Id');
+      const tenantResolution = await resolveTargetTenantId({ supabase, userId: user.userId, tokenTenantId: user.tenantId, requestedTenantId: mspTenantId });
+      if (tenantResolution.errorResponse) { return tenantResolution.errorResponse; }
+      Object.assign({ tenantId: tenantResolution.tenantId });
     }
 
-    const tenantId = tenantResolution.tenantId;
-
-    // Verify admin consent
-    const { data: consentData, error: consentError } = await supabase
-      .from('tenant_consent')
-      .select('*')
-      .eq('tenant_id', tenantId)
-      .eq('is_active', true)
-      .single();
-
-    if (consentError || !consentData) {
-      return NextResponse.json(
-        { error: 'Admin consent not found. Please complete the admin consent flow.' },
-        { status: 403 }
-      );
+    // Verify admin consent (skipped in SQLite mode)
+    if (isSupabaseConfigured()) {
+      const { data: consentData, error: consentError } = await supabase
+        .from('tenant_consent')
+        .select('*')
+        .eq('tenant_id', tenantId)
+        .eq('is_active', true)
+        .single();
+      if (consentError || !consentData) {
+        return NextResponse.json({ error: 'Admin consent not found. Please complete the admin consent flow.' }, { status: 403 });
+      }
     }
 
-    // Check cache first (unless force refresh)
-    if (!forceRefresh) {
+    // Check cache first (unless force refresh) - Supabase only
+    if (!forceRefresh && isSupabaseConfigured()) {
       const { data: cachedApps } = await supabase
         .from('discovered_apps_cache')
         .select('*')
@@ -215,17 +208,17 @@ export async function GET(request: NextRequest) {
     const unmanagedApps: UnmanagedApp[] = [];
 
     // Get claimed apps
-    const { data: claimedApps } = await supabase
+    const { data: claimedApps } = isSupabaseConfigured() ? await supabase
       .from('claimed_apps')
       .select('discovered_app_id, status')
-      .eq('tenant_id', tenantId);
+      .eq('tenant_id', tenantId) : { data: [] };
 
     const claimedMap = new Map(
       claimedApps?.map(c => [c.discovered_app_id, c.status]) || []
     );
 
     // Get manual mappings for this tenant
-    const { data: manualMappings } = await supabase
+    const { data: manualMappings } = isSupabaseConfigured() ? await supabase
       .from('manual_app_mappings')
       .select('*')
       .or(`tenant_id.eq.${tenantId},tenant_id.is.null`);
@@ -291,7 +284,7 @@ export async function GET(request: NextRequest) {
     }));
 
     // Delete old cache entries for this tenant and insert new ones
-    await supabase
+    if (isSupabaseConfigured()) await supabase
       .from('discovered_apps_cache')
       .delete()
       .eq('tenant_id', tenantId);
@@ -335,21 +328,16 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    const supabase = createServerClient();
-    const mspTenantId = request.headers.get('X-MSP-Tenant-Id');
-
-    const tenantResolution = await resolveTargetTenantId({
-      supabase,
-      userId: user.userId,
-      tokenTenantId: user.tenantId,
-      requestedTenantId: mspTenantId,
-    });
-
-    if (tenantResolution.errorResponse) {
-      return tenantResolution.errorResponse;
+    // In SQLite mode, skip MSP tenant resolution and use token tenant directly
+    let tenantId = user.tenantId;
+    const supabase = isSupabaseConfigured() ? createServerClient() : null as any;
+    if (isSupabaseConfigured()) {
+      const supabase = createServerClient();
+      const mspTenantId = request.headers.get('X-MSP-Tenant-Id');
+      const tenantResolution = await resolveTargetTenantId({ supabase, userId: user.userId, tokenTenantId: user.tenantId, requestedTenantId: mspTenantId });
+      if (tenantResolution.errorResponse) { return tenantResolution.errorResponse; }
+      Object.assign({ tenantId: tenantResolution.tenantId });
     }
-
-    const tenantId = tenantResolution.tenantId;
 
     // Get cached apps
     const { data: cachedApps } = await supabase
@@ -358,10 +346,10 @@ export async function POST(request: NextRequest) {
       .eq('tenant_id', tenantId);
 
     // Get claimed apps with status
-    const { data: claimedApps } = await supabase
+    const { data: claimedApps } = isSupabaseConfigured() ? await supabase
       .from('claimed_apps')
       .select('discovered_app_id, status')
-      .eq('tenant_id', tenantId);
+      .eq('tenant_id', tenantId) : { data: [] };
 
     const claimedMap = new Map(
       claimedApps?.map(c => [c.discovered_app_id, c.status]) || []
