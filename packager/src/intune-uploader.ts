@@ -216,6 +216,7 @@ export class IntuneUploader {
       applicableArchitectures: this.mapArchitecture(job.architecture),
       minimumSupportedWindowsRelease: 'v10_1903',
       runAs32Bit: false,
+      fileName: 'Invoke-AppDeployToolkit.exe',
       setupFilePath: 'Invoke-AppDeployToolkit.exe',
       installExperience: {
         runAsAccount: job.install_scope === 'user' ? 'user' : 'system',
