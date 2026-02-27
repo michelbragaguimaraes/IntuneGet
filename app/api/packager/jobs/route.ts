@@ -5,7 +5,8 @@
 
 import { NextRequest, NextResponse } from 'next/server';
 import { getDatabase, verifyPackagerApiKey } from '@/lib/db';
-import { createServerClient } from '@/lib/supabase';
+import { createServerClient, isSupabaseConfigured } from '@/lib/supabase';
+import { getDb as getSqliteDb } from '@/lib/db/sqlite';
 import { getFeatureFlags } from '@/lib/features';
 
 // Verify the packager auth key (API key for SQLite, service role key for Supabase)
@@ -216,13 +217,19 @@ export async function PATCH(request: NextRequest) {
       // shows "update available" for the app that was just deployed.
       if (job.tenant_id && job.winget_id) {
         try {
-          const supabase = createServerClient();
-          await supabase
-            .from('update_check_results')
-            .delete()
-            .eq('user_id', job.user_id)
-            .eq('tenant_id', job.tenant_id)
-            .eq('winget_id', job.winget_id);
+          if (isSupabaseConfigured()) {
+            const supabase = createServerClient();
+            await supabase
+              .from('update_check_results')
+              .delete()
+              .eq('user_id', job.user_id)
+              .eq('tenant_id', job.tenant_id)
+              .eq('winget_id', job.winget_id);
+          } else {
+            getSqliteDb().prepare(
+              `DELETE FROM update_check_results WHERE user_id = ? AND tenant_id = ? AND winget_id = ?`
+            ).run(job.user_id, job.tenant_id, job.winget_id);
+          }
         } catch (cleanupError) {
           console.error(
             `[Packager Jobs API] Failed to clean up update_check_results for job ${job.id}:`,
