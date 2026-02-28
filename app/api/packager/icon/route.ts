@@ -48,7 +48,7 @@ export async function GET(request: NextRequest) {
       // SQLite path
       const db = getSqliteDb();
       const row = db.prepare(
-        'SELECT icon_path FROM winget_packages WHERE winget_id = ? LIMIT 1'
+        'SELECT icon_path FROM winget_packages WHERE id = ? LIMIT 1'
       ).get(wingetId) as { icon_path: string | null } | undefined;
 
       return NextResponse.json({ iconUrl: row?.icon_path ?? null });
