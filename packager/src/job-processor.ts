@@ -334,6 +334,11 @@ export class JobProcessor {
     const publisher = (job.publisher || '').replace(/'/g, "''");
     const displayName = job.display_name.replace(/'/g, "''");
 
+    // Read package_config for PSADT options
+    const cfg = (job.package_config && typeof job.package_config === 'object' && !Array.isArray(job.package_config))
+      ? job.package_config as Record<string, unknown>
+      : {};
+
     // 1. Fill in $adtSession app variables
     script = script.replace(`AppVendor = ''`, `AppVendor = '${publisher}'`);
     script = script.replace(`AppName = ''`, `AppName = '${displayName}'`);
@@ -341,16 +346,98 @@ export class JobProcessor {
     script = script.replace(`AppArch = ''`, `AppArch = '${job.architecture || 'x64'}'`);
     script = script.replace(`AppScriptAuthor = '<author name>'`, `AppScriptAuthor = 'IntuneGet'`);
 
-    // 2. Inject install command
+    // 2. Set AppProcessesToClose from package_config
+    const processesToClose = Array.isArray(cfg.processesToClose) ? cfg.processesToClose as Array<{ name: string; description: string }> : [];
+    if (processesToClose.length > 0) {
+      const psArray = processesToClose
+        .map(p => `@{ Name = '${p.name.replace(/'/g, "''")}'; Description = '${(p.description || p.name).replace(/'/g, "''")}' }`)
+        .join(', ');
+      script = script.replace(
+        `AppProcessesToClose = @()`,
+        `AppProcessesToClose = @(${psArray})`
+      );
+    }
+
+    // 3. Replace the hardcoded $saiwParams block with config-driven values
+    const saiwEntries: string[] = [];
+    const allowDefer = cfg.allowDefer === true;
+    const checkDiskSpace = cfg.checkDiskSpace === true;
+    const persistPrompt = cfg.persistPrompt === true;
+    const blockExecution = cfg.blockExecution === true;
+    const promptToSave = cfg.promptToSave === true;
+    const minimizeWindows = cfg.minimizeWindows === true;
+    const showClosePrompt = cfg.showClosePrompt === true;
+    const closeCountdown = typeof cfg.closeCountdown === 'number' ? cfg.closeCountdown : 60;
+
+    if (allowDefer) {
+      saiwEntries.push(`        AllowDefer = $true`);
+      const deferTimes = typeof cfg.deferTimes === 'number' ? cfg.deferTimes : 3;
+      saiwEntries.push(`        DeferTimes = ${deferTimes}`);
+      if (cfg.deferDeadline) saiwEntries.push(`        DeferDeadline = '${cfg.deferDeadline}'`);
+    }
+    if (checkDiskSpace) saiwEntries.push(`        CheckDiskSpace = $true`);
+    if (persistPrompt) saiwEntries.push(`        PersistPrompt = $true`);
+    if (blockExecution) saiwEntries.push(`        BlockExecution = $true`);
+    if (promptToSave) saiwEntries.push(`        PromptToSave = $true`);
+    if (minimizeWindows) saiwEntries.push(`        MinimizeWindows = $true`);
+    if (showClosePrompt && processesToClose.length > 0) {
+      saiwEntries.push(`        CloseProcessesCountdown = ${closeCountdown}`);
+    }
+    const windowLocation = typeof cfg.windowLocation === 'string' && cfg.windowLocation !== 'Default' ? cfg.windowLocation : null;
+    if (windowLocation) saiwEntries.push(`        WindowLocation = '${windowLocation}'`);
+
+    const newSaiwBlock = saiwEntries.length > 0
+      ? `    $saiwParams = @{\n${saiwEntries.join('\n')}\n    }`
+      : `    $saiwParams = @{}`;
+
+    // Replace the template's $saiwParams block (from $saiwParams = @{ to the closing })
+    script = script.replace(
+      /[ \t]*\$saiwParams = @\{[\s\S]*?\}/,
+      newSaiwBlock
+    );
+
+    // 4. Handle Show-ADTInstallationProgress — hide if config says disabled
+    const progressEnabled = !(cfg.progressDialog && (cfg.progressDialog as Record<string, unknown>).enabled === false);
+    if (!progressEnabled) {
+      script = script.replace(/[ \t]*Show-ADTInstallationProgress[^\n]*\n/g, '');
+    }
+
+    // 5. Replace the default end-of-install Show-ADTInstallationPrompt with custom ones (or remove it)
+    const customPrompts = Array.isArray(cfg.customPrompts) ? cfg.customPrompts as Array<Record<string, unknown>> : [];
+    const postInstallPrompts = customPrompts.filter(p => p.enabled && p.timing === 'post-install');
+
+    // Remove the default boilerplate prompt
+    script = script.replace(/[ \t]*Show-ADTInstallationPrompt -Message 'You can customize[^\n]+\n/g, '');
+
+    // Inject custom post-install prompts
+    if (postInstallPrompts.length > 0) {
+      const promptLines = postInstallPrompts.map(p => {
+        const parts = [`-Message '${String(p.message || '').replace(/'/g, "''")}'`];
+        if (p.title) parts.push(`-Title '${String(p.title).replace(/'/g, "''")}'`);
+        if (p.icon) parts.push(`-Icon '${p.icon}'`);
+        if (p.buttonLeftText) parts.push(`-ButtonLeftText '${p.buttonLeftText}'`);
+        if (p.buttonMiddleText) parts.push(`-ButtonMiddleText '${p.buttonMiddleText}'`);
+        if (p.buttonRightText) parts.push(`-ButtonRightText '${p.buttonRightText}'`);
+        if (p.timeout) parts.push(`-Timeout ${p.timeout}`);
+        if (p.persistPrompt) parts.push(`-PersistPrompt`);
+        return `    Show-ADTInstallationPrompt ${parts.join(' ')}`;
+      }).join('\n');
+      script = script.replace(
+        `    ## <Perform Post-Installation tasks here>`,
+        `    ## <Perform Post-Installation tasks here>\n${promptLines}`
+      );
+    }
+
+    // 6. Inject install command
     const installLine = job.installer_type === 'msi' || job.installer_type === 'wix'
       ? `    Start-ADTMsiProcess -Action Install -FilePath "$dirFiles\\${installerFileName}"`
-      : `    Start-ADTProcess -FilePath "$dirFiles\\${installerFileName}" -ArgumentList '${silentSwitches}' -WaitForMsiExec:$false`;
+      : `    Start-ADTProcess -FilePath "$dirFiles\\${installerFileName}" -ArgumentList '${silentSwitches}'`;
     script = script.replace(
       `    ## <Perform Installation tasks here>`,
       `    ## <Perform Installation tasks here>\n${installLine}`
     );
 
-    // 3. Inject post-install registry marker
+    // 7. Inject post-install registry detection marker
     const regPath = `${job.install_scope === 'user' ? 'HKCU' : 'HKLM'}:\\SOFTWARE\\IntuneGet\\Apps\\${this.sanitizeWingetId(job.winget_id)}`;
     const postInstall = [
       `    $regPath = '${regPath}'`,
@@ -363,21 +450,28 @@ export class JobProcessor {
       `    ## <Perform Post-Installation tasks here>\n${postInstall}`
     );
 
-    // 4. Inject uninstall command
+    // 8. Add restart prompt after post-install if configured
+    const restartPromptCfg = cfg.restartPrompt as Record<string, unknown> | undefined;
+    if (restartPromptCfg?.enabled) {
+      const rpc = restartPromptCfg.countdownSeconds ?? 600;
+      const rph = restartPromptCfg.countdownNoHideSeconds ?? 60;
+      const rpLine = `    Show-ADTInstallationRestartPrompt -CountdownSeconds ${rpc} -CountdownNoHideSeconds ${rph}`;
+      script = script.replace(
+        `    ## <Perform Post-Installation tasks here>`,
+        `    ## <Perform Post-Installation tasks here>\n${rpLine}`
+      );
+    }
+
+    // 9. Inject uninstall command
     const uninstallLines = [
       `    $uninstallKey = Get-ChildItem 'HKLM:\\SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\Uninstall','HKLM:\\SOFTWARE\\WOW6432Node\\Microsoft\\Windows\\CurrentVersion\\Uninstall' -ErrorAction SilentlyContinue | Get-ItemProperty | Where-Object { $_.DisplayName -like '*${displayName}*' } | Select-Object -First 1`,
-      `    if ($uninstallKey -and $uninstallKey.UninstallString) { Start-ADTProcess -FilePath 'cmd.exe' -ArgumentList "/c $($uninstallKey.UninstallString) /S" -WaitForMsiExec:$false }`,
+      `    if ($uninstallKey -and $uninstallKey.UninstallString) { Start-ADTProcess -FilePath 'cmd.exe' -ArgumentList "/c $($uninstallKey.UninstallString) /S" }`,
       `    if (Test-Path '${regPath}') { Remove-Item -Path '${regPath}' -Force -ErrorAction SilentlyContinue }`,
     ].join('\n');
     script = script.replace(
       `    ## <Perform Uninstallation tasks here>`,
       `    ## <Perform Uninstallation tasks here>\n${uninstallLines}`
     );
-
-    // 5. Remove dialogs not needed for silent Intune deployments
-    script = script.replace(/[ \t]*Show-ADTInstallationPrompt[^\n]+\n/g, '');
-    // Remove the Welcome/defer block — silent mode handles this automatically
-    script = script.replace(/[ \t]*\$saiwParams[\s\S]*?Show-ADTInstallationWelcome[^\n]+\n/g, '');
 
     return script;
   }
