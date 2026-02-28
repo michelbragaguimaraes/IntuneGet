@@ -243,30 +243,11 @@ export class ApiClient {
 
   /**
    * Fetch the icon URL for a WinGet package.
-   * Tries the store manifest endpoint first (best quality), falls back to DB icon_path.
+   * Uses the bundled static icons in public/icons/<wingetId>/icon-128.png
+   * which is the same source the dashboard uses for non-Store apps.
    */
   async fetchIconUrl(wingetId: string): Promise<string | null> {
-    // 1. Try store manifest (same source the dashboard uses)
-    try {
-      const storeRes = await fetch(
-        `${this.baseUrl}/api/store/manifest?id=${encodeURIComponent(wingetId)}`,
-        { headers: { 'Authorization': `Bearer ${this.apiKey}` } }
-      );
-      if (storeRes.ok) {
-        const data = await storeRes.json() as { iconUrl?: string };
-        if (data.iconUrl) return data.iconUrl;
-      }
-    } catch { /* fall through */ }
-
-    // 2. Fall back to DB icon_path
-    try {
-      const response = await this.request<{ iconUrl: string | null }>(
-        'GET',
-        `/api/packager/icon?wingetId=${encodeURIComponent(wingetId)}`
-      );
-      return response.iconUrl ?? null;
-    } catch {
-      return null;
-    }
+    // Static bundled icon (highest quality, always available if icon exists)
+    return `${this.baseUrl}/icons/${encodeURIComponent(wingetId)}/icon-128.png`;
   }
 }

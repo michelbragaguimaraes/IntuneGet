@@ -281,7 +281,10 @@ export class JobProcessor {
 
     const fetch = (await import('node-fetch')).default;
     const response = await fetch(iconUrl, { timeout: 10000 } as never);
-    if (!response.ok) return undefined;
+    if (!response.ok) {
+      this.logger.debug('No bundled icon found for package', { wingetId, iconUrl, status: response.status });
+      return undefined;
+    }
 
     const buffer = await response.arrayBuffer();
     const b64 = Buffer.from(buffer).toString('base64');
