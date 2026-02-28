@@ -13,6 +13,7 @@ import { createLogger, Logger } from './logger.js';
 
 interface PackagingResult {
   intunewinPath: string;
+  iconBase64?: string;
   encryptionInfo: {
     encryptionKey: string;
     macKey: string;
@@ -70,6 +71,14 @@ export class JobProcessor {
         await poller.updateJobProgress(job.id, 30, 'Checksum verified');
       }
 
+      // Step 3b: Extract icon from installer EXE (best effort)
+      let iconBase64: string | undefined;
+      try {
+        iconBase64 = await this.extractInstallerIcon(installerPath);
+      } catch (e) {
+        this.logger.warn('Could not extract icon from installer', { error: String(e) });
+      }
+
       // Step 4: Create PSADT package (30-50%)
       await poller.updateJobProgress(job.id, 30, 'Creating PSADT package...');
       const packageDir = await this.createPsadtPackage(job, installerPath, jobWorkDir);
@@ -93,7 +102,8 @@ export class JobProcessor {
           // Map upload progress (0-100) to overall progress (75-95)
           const overallPercent = 75 + Math.floor(percent * 0.2);
           await poller.updateJobProgress(job.id, overallPercent, message);
-        }
+        },
+        iconBase64
       );
 
       // Step 8: Mark as deployed (100%)
@@ -256,6 +266,50 @@ export class JobProcessor {
   /**
    * Verify file checksum
    */
+  /**
+   * Extract icon from installer EXE/MSI as base64 PNG (Windows only, best effort)
+   */
+  private async extractInstallerIcon(installerPath: string): Promise<string | undefined> {
+    const ext = path.extname(installerPath).toLowerCase();
+    // Only attempt for EXE files — MSI icons are unreliable via this method
+    if (ext !== '.exe') return undefined;
+
+    const script = `
+Add-Type -AssemblyName System.Drawing
+try {
+    $icon = [System.Drawing.Icon]::ExtractAssociatedIcon('${installerPath.replace(/'/g, "''")}')
+    if ($null -eq $icon) { exit 1 }
+    $bmp = $icon.ToBitmap()
+    $ms = New-Object System.IO.MemoryStream
+    $bmp.Save($ms, [System.Drawing.Imaging.ImageFormat]::Png)
+    $b64 = [Convert]::ToBase64String($ms.ToArray())
+    Write-Output $b64
+} catch { exit 1 }
+`.trim();
+
+    try {
+      const { execFileAsync } = await import('./utils.js').catch(() => ({ execFileAsync: null }));
+      if (!execFileAsync) {
+        // Inline fallback
+        const { execFile } = await import('child_process');
+        const { promisify } = await import('util');
+        const execFileP = promisify(execFile);
+        const { stdout } = await execFileP('powershell.exe', ['-NoProfile', '-NonInteractive', '-Command', script]);
+        const b64 = stdout.trim();
+        return b64.length > 100 ? b64 : undefined;
+      }
+    } catch {
+      // Try direct approach
+    }
+
+    const { execFile } = await import('child_process');
+    const { promisify } = await import('util');
+    const execFileP = promisify(execFile);
+    const { stdout } = await execFileP('powershell.exe', ['-NoProfile', '-NonInteractive', '-Command', script], { timeout: 15000 });
+    const b64 = stdout.trim();
+    return b64.length > 100 ? b64 : undefined;
+  }
+
   private async verifyChecksum(filePath: string, expectedSha256: string): Promise<void> {
     const fileBuffer = await fs.promises.readFile(filePath);
     const hash = crypto.createHash('sha256').update(fileBuffer).digest('hex');

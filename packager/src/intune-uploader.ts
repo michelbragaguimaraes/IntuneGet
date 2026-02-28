@@ -102,13 +102,14 @@ export class IntuneUploader {
     job: PackagingJob,
     intunewinPath: string,
     encryptionInfo: EncryptionInfo,
-    onProgress?: ProgressCallback
+    onProgress?: ProgressCallback,
+    iconBase64?: string
   ): Promise<IntuneAppResult> {
     const graphClient = new GraphClient(this.config, job.tenant_id);
 
     // Step 1: Create Win32 LOB App (5%)
     await onProgress?.(5, 'Creating app in Intune...');
-    const app = await this.createWin32App(graphClient, job);
+    const app = await this.createWin32App(graphClient, job, iconBase64);
     this.logger.info('Created Win32 LOB App', { appId: app.id });
 
     // Step 2: Create content version (10%)
@@ -210,9 +211,10 @@ export class IntuneUploader {
    */
   private async createWin32App(
     graphClient: GraphClient,
-    job: PackagingJob
+    job: PackagingJob,
+    iconBase64?: string
   ): Promise<{ id: string }> {
-    const appBody = {
+    const appBody: Record<string, unknown> = {
       '@odata.type': '#microsoft.graph.win32LobApp',
       displayName: job.display_name,
       description: `${job.display_name} ${job.version} - Deployed via IntuneGet`,
@@ -240,6 +242,14 @@ export class IntuneUploader {
       ],
       detectionRules: this.buildDetectionRules(job),
     };
+
+    if (iconBase64) {
+      appBody.largeIcon = {
+        '@odata.type': '#microsoft.graph.mimeContent',
+        type: 'image/png',
+        value: iconBase64,
+      };
+    }
 
     const response = await graphClient.post<{ id: string }>('/deviceAppManagement/mobileApps', appBody);
     return { id: response.id };
