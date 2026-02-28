@@ -374,11 +374,10 @@ export class JobProcessor {
       `    ## <Perform Uninstallation tasks here>\n${uninstallLines}`
     );
 
-    // 5. Remove the end-of-install dialog (not needed for silent Intune deployments)
-    script = script.replace(
-      /\s*Show-ADTInstallationPrompt[^\n]+\n/g,
-      '\n'
-    );
+    // 5. Remove dialogs not needed for silent Intune deployments
+    script = script.replace(/[ \t]*Show-ADTInstallationPrompt[^\n]+\n/g, '');
+    // Remove the Welcome/defer block — silent mode handles this automatically
+    script = script.replace(/[ \t]*\$saiwParams[\s\S]*?Show-ADTInstallationWelcome[^\n]+\n/g, '');
 
     return script;
   }

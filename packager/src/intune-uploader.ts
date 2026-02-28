@@ -218,8 +218,8 @@ export class IntuneUploader {
       description: `${job.display_name} ${job.version} - Deployed via IntuneGet`,
       publisher: job.publisher,
       displayVersion: job.version,
-      installCommandLine: 'Invoke-AppDeployToolkit.exe',
-      uninstallCommandLine: 'Invoke-AppDeployToolkit.exe -DeploymentType Uninstall',
+      installCommandLine: 'Invoke-AppDeployToolkit.exe -DeployMode Silent',
+      uninstallCommandLine: 'Invoke-AppDeployToolkit.exe -DeploymentType Uninstall -DeployMode Silent',
       applicableArchitectures: this.mapArchitecture(job.architecture),
       minimumSupportedOperatingSystem: {
         v10_1903: true,
