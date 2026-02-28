@@ -46,9 +46,10 @@ export async function POST(request: NextRequest) {
       success: true,
       deletedCount,
     });
-  } catch {
+  } catch (err) {
+    console.error('[clear-history] Error:', err);
     return NextResponse.json(
-      { error: 'Internal server error' },
+      { error: 'Internal server error', detail: String(err) },
       { status: 500 }
     );
   }
