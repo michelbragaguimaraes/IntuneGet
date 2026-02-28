@@ -425,17 +425,29 @@ Catch {
       return `Execute-MSI -Action 'Install' -Path $installerPath -Parameters '${silentSwitches}'`;
     }
 
-    return `Execute-Process -Path $installerPath -Parameters '${silentSwitches}' -WaitForMsiExec`;
+    return `Execute-Process -Path $installerPath -Parameters '${silentSwitches}'`;
   }
 
   /**
    * Get uninstall command
    */
   private getUninstallCommand(job: PackagingJob): string {
-    if (job.uninstall_command) {
-      return `Execute-Process -Path 'cmd.exe' -Parameters '/c ${job.uninstall_command.replace(/'/g, "''")}'`;
+    if (!job.uninstall_command) {
+      return "## No uninstall command specified";
     }
-    return "## No uninstall command specified";
+
+    // REGISTRY_UNINSTALL:<AppName> — look up uninstall string from registry
+    if (job.uninstall_command.startsWith('REGISTRY_UNINSTALL:')) {
+      const appName = job.uninstall_command.replace('REGISTRY_UNINSTALL:', '').replace(/'/g, "''");
+      return `
+        $uninstallKey = Get-ChildItem 'HKLM:\\SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\Uninstall', 'HKLM:\\SOFTWARE\\WOW6432Node\\Microsoft\\Windows\\CurrentVersion\\Uninstall' -ErrorAction SilentlyContinue |
+            Get-ItemProperty | Where-Object { $_.DisplayName -like '*${appName}*' } | Select-Object -First 1
+        If ($uninstallKey -and $uninstallKey.UninstallString) {
+            Execute-Process -Path 'cmd.exe' -Parameters "/c $($uninstallKey.UninstallString) /S"
+        }`;
+    }
+
+    return `Execute-Process -Path 'cmd.exe' -Parameters '/c ${job.uninstall_command.replace(/'/g, "''")}'`;
   }
 
   /**
