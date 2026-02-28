@@ -30,10 +30,6 @@ interface RecentFailure {
 
 export async function GET(request: NextRequest) {
   try {    // Self-hosted SQLite stub: return empty/default when Supabase not configured
-    if (!isSupabaseConfigured()) {
-      return NextResponse.json({ data: [], items: [], count: 0, message: 'Feature requires Supabase configuration' }, { status: 200 });
-    }
-
     const user = await parseAccessToken(request.headers.get('Authorization'));
     if (!user) {
       return NextResponse.json(
@@ -56,7 +52,7 @@ export async function GET(request: NextRequest) {
       now.getUTCDate() - days
     ));
 
-    const supabase = createServerClient();
+    const supabase = isSupabaseConfigured() ? createServerClient() : null;
 
     // Define the shape of jobs returned from the query
     interface PackagingJobAnalytics {
@@ -71,21 +67,25 @@ export async function GET(request: NextRequest) {
     }
 
     // Get all jobs in date range
-    const { data: jobs, error: jobsError } = await supabase
-      .from('packaging_jobs')
-      .select('id, winget_id, display_name, publisher, status, error_message, created_at, completed_at')
-      .eq('user_id', user.userId)
-      .gte('created_at', startDate.toISOString())
-      .order('created_at', { ascending: false });
-
-    if (jobsError) {
-      return NextResponse.json(
-        { error: 'Failed to fetch analytics data' },
-        { status: 500 }
-      );
+    let allJobs: PackagingJobAnalytics[] = [];
+    if (!supabase) {
+      const { getDb } = require('@/lib/db/sqlite');
+      allJobs = getDb().prepare(
+        `SELECT id, winget_id, display_name, publisher, status, error_message, created_at, completed_at
+         FROM packaging_jobs WHERE user_id = ? AND created_at >= ? ORDER BY created_at DESC`
+      ).all(user.userId, startDate.toISOString()) as PackagingJobAnalytics[];
+    } else {
+      const { data: jobs, error: jobsError } = await supabase
+        .from('packaging_jobs')
+        .select('id, winget_id, display_name, publisher, status, error_message, created_at, completed_at')
+        .eq('user_id', user.userId)
+        .gte('created_at', startDate.toISOString())
+        .order('created_at', { ascending: false });
+      if (jobsError) {
+        return NextResponse.json({ error: 'Failed to fetch analytics data' }, { status: 500 });
+      }
+      allJobs = (jobs || []) as PackagingJobAnalytics[];
     }
-
-    const allJobs = (jobs || []) as PackagingJobAnalytics[];
 
     // Calculate success rate
     const completedJobs = allJobs.filter((j) => j.status === 'completed').length;
