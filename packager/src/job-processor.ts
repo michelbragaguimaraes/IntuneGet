@@ -329,36 +329,56 @@ export class JobProcessor {
    * Generate Invoke-AppDeployToolkit.ps1 by injecting commands into the PSADT v4 template
    */
   private async generateDeployScriptFromTemplate(templatePath: string, job: PackagingJob, installerFileName: string): Promise<string> {
-    const template = await fs.promises.readFile(templatePath, 'utf-8');
+    let script = await fs.promises.readFile(templatePath, 'utf-8');
     const silentSwitches = this.extractSilentSwitches(job.install_command, job.installer_type);
-    const installCmd = this.getInstallCommand(job.installer_type, installerFileName, silentSwitches);
-    const uninstallCmd = this.getUninstallCommand(job);
-    const registryMarker = this.getRegistryMarkerCreation(job);
-    const registryRemoval = this.getRegistryMarkerRemoval(job);
+    const publisher = (job.publisher || '').replace(/'/g, "''");
+    const displayName = job.display_name.replace(/'/g, "''");
 
-    // Inject into Installation section
-    let script = template.replace(
-      /(\[\[ADTSession\]\]::CurrentSession\.InstallPhase = 'Installation'[^\n]*\n)([\s\S]*?)(?=\s*#\s*\[\[ADTSession\]\]::CurrentSession\.InstallPhase = 'Post-Installation'|\s*##\*={3,}\s*##\* POST-INSTALLATION)/,
-      (match, header) => `${header}        $installerPath = "$dirFiles\\${installerFileName}"\n        ${installCmd}\n\n`
-    );
+    // 1. Fill in $adtSession app variables
+    script = script.replace(`AppVendor = ''`, `AppVendor = '${publisher}'`);
+    script = script.replace(`AppName = ''`, `AppName = '${displayName}'`);
+    script = script.replace(`AppVersion = ''`, `AppVersion = '${job.version}'`);
+    script = script.replace(`AppArch = ''`, `AppArch = '${job.architecture || 'x64'}'`);
+    script = script.replace(`AppScriptAuthor = '<author name>'`, `AppScriptAuthor = 'IntuneGet'`);
 
-    // Inject into Post-Installation section
+    // 2. Inject install command
+    const installLine = job.installer_type === 'msi' || job.installer_type === 'wix'
+      ? `    Start-ADTMsiProcess -Action Install -FilePath "$dirFiles\\${installerFileName}"`
+      : `    Start-ADTProcess -FilePath "$dirFiles\\${installerFileName}" -ArgumentList '${silentSwitches}' -WaitForMsiExec:$false`;
     script = script.replace(
-      /(\[\[ADTSession\]\]::CurrentSession\.InstallPhase = 'Post-Installation'[^\n]*\n)([\s\S]*?)(?=\s*#\s*\[\[ADTSession\]\]::CurrentSession\.InstallPhase = 'Uninstallation'|\s*##\*={3,}\s*##\* UNINSTALLATION)/,
-      (match, header) => `${header}        ${registryMarker}\n\n`
+      `    ## <Perform Installation tasks here>`,
+      `    ## <Perform Installation tasks here>\n${installLine}`
     );
 
-    // Inject into Uninstallation section
+    // 3. Inject post-install registry marker
+    const regPath = `${job.install_scope === 'user' ? 'HKCU' : 'HKLM'}:\\SOFTWARE\\IntuneGet\\Apps\\${this.sanitizeWingetId(job.winget_id)}`;
+    const postInstall = [
+      `    $regPath = '${regPath}'`,
+      `    if (-not (Test-Path $regPath)) { New-Item -Path $regPath -Force | Out-Null }`,
+      `    Set-ItemProperty -Path $regPath -Name 'Version' -Value '${job.version}' -Type String -Force`,
+      `    Set-ItemProperty -Path $regPath -Name 'DisplayName' -Value '${displayName}' -Type String -Force`,
+    ].join('\n');
     script = script.replace(
-      /(\[\[ADTSession\]\]::CurrentSession\.InstallPhase = 'Uninstallation'[^\n]*\n)([\s\S]*?)(?=\s*#\s*\[\[ADTSession\]\]::CurrentSession\.InstallPhase = 'Post-Uninstallation'|\s*##\*={3,}\s*##\* POST-UNINSTALLATION)/,
-      (match, header) => `${header}        ${uninstallCmd}\n        ${registryRemoval}\n\n`
+      `    ## <Perform Post-Installation tasks here>`,
+      `    ## <Perform Post-Installation tasks here>\n${postInstall}`
     );
 
-    // If none of the replacements matched (template format different), fall back to generated script
-    if (script === template) {
-      this.logger.warn('PSADT template injection failed — falling back to generated script');
-      return this.generateDeployScript(job, installerFileName);
-    }
+    // 4. Inject uninstall command
+    const uninstallLines = [
+      `    $uninstallKey = Get-ChildItem 'HKLM:\\SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\Uninstall','HKLM:\\SOFTWARE\\WOW6432Node\\Microsoft\\Windows\\CurrentVersion\\Uninstall' -ErrorAction SilentlyContinue | Get-ItemProperty | Where-Object { $_.DisplayName -like '*${displayName}*' } | Select-Object -First 1`,
+      `    if ($uninstallKey -and $uninstallKey.UninstallString) { Start-ADTProcess -FilePath 'cmd.exe' -ArgumentList "/c $($uninstallKey.UninstallString) /S" -WaitForMsiExec:$false }`,
+      `    if (Test-Path '${regPath}') { Remove-Item -Path '${regPath}' -Force -ErrorAction SilentlyContinue }`,
+    ].join('\n');
+    script = script.replace(
+      `    ## <Perform Uninstallation tasks here>`,
+      `    ## <Perform Uninstallation tasks here>\n${uninstallLines}`
+    );
+
+    // 5. Remove the end-of-install dialog (not needed for silent Intune deployments)
+    script = script.replace(
+      /\s*Show-ADTInstallationPrompt[^\n]+\n/g,
+      '\n'
+    );
 
     return script;
   }
