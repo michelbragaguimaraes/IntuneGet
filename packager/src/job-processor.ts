@@ -370,9 +370,13 @@ export class JobProcessor {
     const displayName = job.display_name.replace(/'/g, "''");
 
     // Read package_config for PSADT options
-    const cfg = (job.package_config && typeof job.package_config === 'object' && !Array.isArray(job.package_config))
+    // package_config is the full Win32CartItem; PSADT config is nested under psadtConfig
+    const rawCfg = (job.package_config && typeof job.package_config === 'object' && !Array.isArray(job.package_config))
       ? job.package_config as Record<string, unknown>
       : {};
+    const cfg = (rawCfg.psadtConfig && typeof rawCfg.psadtConfig === 'object')
+      ? rawCfg.psadtConfig as Record<string, unknown>
+      : rawCfg; // fallback: if psadtConfig key absent, try top-level
 
     // 1. Fill in $adtSession app variables
     script = script.replace(`AppVendor = ''`, `AppVendor = '${publisher}'`);
