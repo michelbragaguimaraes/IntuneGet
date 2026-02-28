@@ -240,4 +240,19 @@ export class ApiClient {
       return false;
     }
   }
+
+  /**
+   * Fetch the icon URL for a WinGet package from the web app's local DB
+   */
+  async fetchIconUrl(wingetId: string): Promise<string | null> {
+    try {
+      const response = await this.request<{ iconUrl: string | null }>(
+        'GET',
+        `/api/packager/icon?wingetId=${encodeURIComponent(wingetId)}`
+      );
+      return response.iconUrl ?? null;
+    } catch {
+      return null;
+    }
+  }
 }

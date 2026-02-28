@@ -9,6 +9,7 @@ import { spawn } from 'child_process';
 import { PackagerConfig } from './config.js';
 import { PackagingJob, JobPoller } from './job-poller.js';
 import { IntuneUploader, IntuneAppResult } from './intune-uploader.js';
+import { ApiClient } from './api-client.js';
 import { createLogger, Logger } from './logger.js';
 
 interface PackagingResult {
@@ -31,12 +32,14 @@ export class JobProcessor {
   private config: PackagerConfig;
   private poller: JobPoller | null;
   private uploader: IntuneUploader;
+  private apiClient: ApiClient | null;
   private logger: Logger;
 
   constructor(config: PackagerConfig, poller: JobPoller | null) {
     this.config = config;
     this.poller = poller;
     this.uploader = new IntuneUploader(config);
+    this.apiClient = config.api?.url && config.api?.key ? new ApiClient(config) : null;
     this.logger = createLogger('JobProcessor');
   }
 
@@ -71,12 +74,12 @@ export class JobProcessor {
         await poller.updateJobProgress(job.id, 30, 'Checksum verified');
       }
 
-      // Step 3b: Extract icon from installer EXE (best effort)
+      // Step 3b: Fetch app icon from web app DB (best effort)
       let iconBase64: string | undefined;
       try {
-        iconBase64 = await this.extractInstallerIcon(installerPath);
+        iconBase64 = await this.fetchAppIcon(job.winget_id);
       } catch (e) {
-        this.logger.warn('Could not extract icon from installer', { error: String(e) });
+        this.logger.warn('Could not fetch app icon', { error: String(e) });
       }
 
       // Step 4: Create PSADT package (30-50%)
@@ -267,46 +270,21 @@ export class JobProcessor {
    * Verify file checksum
    */
   /**
-   * Extract icon from installer EXE/MSI as base64 PNG (Windows only, best effort)
+   * Fetch app icon from the web app's local DB, download and base64-encode it.
+   * Falls back gracefully — returns undefined on any failure.
    */
-  private async extractInstallerIcon(installerPath: string): Promise<string | undefined> {
-    const ext = path.extname(installerPath).toLowerCase();
-    // Only attempt for EXE files — MSI icons are unreliable via this method
-    if (ext !== '.exe') return undefined;
+  private async fetchAppIcon(wingetId: string): Promise<string | undefined> {
+    if (!this.apiClient) return undefined;
 
-    const script = `
-Add-Type -AssemblyName System.Drawing
-try {
-    $icon = [System.Drawing.Icon]::ExtractAssociatedIcon('${installerPath.replace(/'/g, "''")}')
-    if ($null -eq $icon) { exit 1 }
-    $bmp = $icon.ToBitmap()
-    $ms = New-Object System.IO.MemoryStream
-    $bmp.Save($ms, [System.Drawing.Imaging.ImageFormat]::Png)
-    $b64 = [Convert]::ToBase64String($ms.ToArray())
-    Write-Output $b64
-} catch { exit 1 }
-`.trim();
+    const iconUrl = await this.apiClient.fetchIconUrl(wingetId);
+    if (!iconUrl || !iconUrl.startsWith('https://')) return undefined;
 
-    try {
-      const { execFileAsync } = await import('./utils.js').catch(() => ({ execFileAsync: null }));
-      if (!execFileAsync) {
-        // Inline fallback
-        const { execFile } = await import('child_process');
-        const { promisify } = await import('util');
-        const execFileP = promisify(execFile);
-        const { stdout } = await execFileP('powershell.exe', ['-NoProfile', '-NonInteractive', '-Command', script]);
-        const b64 = stdout.trim();
-        return b64.length > 100 ? b64 : undefined;
-      }
-    } catch {
-      // Try direct approach
-    }
+    const fetch = (await import('node-fetch')).default;
+    const response = await fetch(iconUrl, { timeout: 10000 } as never);
+    if (!response.ok) return undefined;
 
-    const { execFile } = await import('child_process');
-    const { promisify } = await import('util');
-    const execFileP = promisify(execFile);
-    const { stdout } = await execFileP('powershell.exe', ['-NoProfile', '-NonInteractive', '-Command', script], { timeout: 15000 });
-    const b64 = stdout.trim();
+    const buffer = await response.arrayBuffer();
+    const b64 = Buffer.from(buffer).toString('base64');
     return b64.length > 100 ? b64 : undefined;
   }
 
