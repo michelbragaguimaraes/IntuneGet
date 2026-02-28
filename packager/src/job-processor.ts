@@ -429,9 +429,10 @@ export class JobProcessor {
     }
 
     // 6. Inject install command
+    // NOTE: $dirFiles is undefined in function scope in PSADT v4 — use $PSScriptRoot\Files\ instead
     const installLine = job.installer_type === 'msi' || job.installer_type === 'wix'
-      ? `    Start-ADTMsiProcess -Action Install -FilePath "$dirFiles\\${installerFileName}"`
-      : `    Start-ADTProcess -FilePath "$dirFiles\\${installerFileName}" -ArgumentList '${silentSwitches}'`;
+      ? `    Start-ADTMsiProcess -Action Install -FilePath "$PSScriptRoot\\Files\\${installerFileName}"`
+      : `    Start-ADTProcess -FilePath "$PSScriptRoot\\Files\\${installerFileName}" -ArgumentList '${silentSwitches}'`;
     script = script.replace(
       `    ## <Perform Installation tasks here>`,
       `    ## <Perform Installation tasks here>\n${installLine}`
@@ -535,7 +536,7 @@ Try {
 
     If ($DeploymentType -ieq 'Install') {
         ## Install application
-        $installerPath = "$dirFiles\\${installerFileName}"
+        $installerPath = "$PSScriptRoot\Files\${installerFileName}"
         ${this.getInstallCommand(job.installer_type, installerFileName, silentSwitches)}
     }
     ElseIf ($DeploymentType -ieq 'Uninstall') {
