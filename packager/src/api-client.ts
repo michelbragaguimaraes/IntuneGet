@@ -242,9 +242,23 @@ export class ApiClient {
   }
 
   /**
-   * Fetch the icon URL for a WinGet package from the web app's local DB
+   * Fetch the icon URL for a WinGet package.
+   * Tries the store manifest endpoint first (best quality), falls back to DB icon_path.
    */
   async fetchIconUrl(wingetId: string): Promise<string | null> {
+    // 1. Try store manifest (same source the dashboard uses)
+    try {
+      const storeRes = await fetch(
+        `${this.baseUrl}/api/store/manifest?id=${encodeURIComponent(wingetId)}`,
+        { headers: { 'Authorization': `Bearer ${this.apiKey}` } }
+      );
+      if (storeRes.ok) {
+        const data = await storeRes.json() as { iconUrl?: string };
+        if (data.iconUrl) return data.iconUrl;
+      }
+    } catch { /* fall through */ }
+
+    // 2. Fall back to DB icon_path
     try {
       const response = await this.request<{ iconUrl: string | null }>(
         'GET',
