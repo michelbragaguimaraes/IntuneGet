@@ -530,23 +530,37 @@ export const sqliteDb: DatabaseAdapter = {
     async deleteByUserIdAndStatuses(userId: string, statuses: string[]): Promise<number> {
       const database = getDb();
       const placeholders = statuses.map(() => '?').join(', ');
-      // Clear FK references in msp_batch_deployment_items if the table exists
-      try {
-        database.prepare(`
-          UPDATE msp_batch_deployment_items SET packaging_job_id = NULL
-          WHERE packaging_job_id IN (
-            SELECT id FROM packaging_jobs WHERE user_id = ? AND status IN (${placeholders})
-          )
+
+      const deleteMany = database.transaction(() => {
+        // Null out upload_history FK before deleting jobs
+        try {
+          database.prepare(`
+            UPDATE upload_history SET packaging_job_id = NULL
+            WHERE packaging_job_id IN (
+              SELECT id FROM packaging_jobs WHERE user_id = ? AND status IN (${placeholders})
+            )
+          `).run(userId, ...statuses);
+        } catch { /* table may not exist */ }
+
+        // Clear FK references in msp_batch_deployment_items if the table exists
+        try {
+          database.prepare(`
+            UPDATE msp_batch_deployment_items SET packaging_job_id = NULL
+            WHERE packaging_job_id IN (
+              SELECT id FROM packaging_jobs WHERE user_id = ? AND status IN (${placeholders})
+            )
+          `).run(userId, ...statuses);
+        } catch { /* table may not exist */ }
+
+        const result = database.prepare(`
+          DELETE FROM packaging_jobs
+          WHERE user_id = ? AND status IN (${placeholders})
         `).run(userId, ...statuses);
-      } catch {
-        // Table may not exist in self-hosted mode
-      }
-      const stmt = database.prepare(`
-        DELETE FROM packaging_jobs
-        WHERE user_id = ? AND status IN (${placeholders})
-      `);
-      const result = stmt.run(userId, ...statuses);
-      return result.changes;
+
+        return result.changes;
+      });
+
+      return deleteMany() as number;
     },
   },
 
