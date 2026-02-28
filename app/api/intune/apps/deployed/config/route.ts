@@ -1,7 +1,8 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { createServerClient } from '@/lib/supabase';
+import { createServerClient, isSupabaseConfigured } from '@/lib/supabase';
 import { parseAccessToken } from '@/lib/auth-utils';
 import { resolveTargetTenantId } from '@/lib/msp/tenant-resolution';
+import { getDb as getSqliteDb } from '@/lib/db/sqlite';
 
 export async function GET(request: NextRequest) {
   try {
@@ -23,21 +24,26 @@ export async function GET(request: NextRequest) {
       );
     }
 
-    const supabase = createServerClient();
-    const mspTenantId = request.headers.get('X-MSP-Tenant-Id');
+    if (!isSupabaseConfigured()) {
+      const db = getSqliteDb();
+      const row = db.prepare(`
+        SELECT package_config, completed_at, intune_app_id FROM packaging_jobs
+        WHERE user_id = ? AND winget_id = ? AND status = 'deployed'
+        ORDER BY completed_at DESC LIMIT 1
+      `).get(user.userId, wingetId) as { package_config: string; completed_at: string; intune_app_id: string } | undefined;
 
-    const tenantResolution = await resolveTargetTenantId({
-      supabase,
-      userId: user.userId,
-      tokenTenantId: user.tenantId,
-      requestedTenantId: mspTenantId,
-    });
-
-    if (tenantResolution.errorResponse) {
-      return tenantResolution.errorResponse;
+      return NextResponse.json({
+        config: row?.package_config ? JSON.parse(row.package_config) : null,
+        deployedAt: row?.completed_at || null,
+        intuneAppId: row?.intune_app_id || null,
+      });
     }
 
-    // Get the most recent successfully deployed job's package_config
+    const supabase = createServerClient();
+    const mspTenantId = request.headers.get('X-MSP-Tenant-Id');
+    const tenantResolution = await resolveTargetTenantId({ supabase, userId: user.userId, tokenTenantId: user.tenantId, requestedTenantId: mspTenantId });
+    if (tenantResolution.errorResponse) return tenantResolution.errorResponse;
+
     const { data, error } = await supabase
       .from('packaging_jobs')
       .select('package_config, completed_at, intune_app_id')
@@ -50,11 +56,7 @@ export async function GET(request: NextRequest) {
       .maybeSingle();
 
     if (error || !data) {
-      return NextResponse.json({
-        config: null,
-        deployedAt: null,
-        intuneAppId: null,
-      });
+      return NextResponse.json({ config: null, deployedAt: null, intuneAppId: null });
     }
 
     return NextResponse.json({

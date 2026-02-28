@@ -9,16 +9,27 @@ import { parseAccessToken } from '@/lib/auth-utils';
 
 export async function GET(request: NextRequest) {
   try {    // Self-hosted SQLite stub: return empty/default when Supabase not configured
-    if (!isSupabaseConfigured()) {
-      return NextResponse.json({ data: [], items: [], count: 0, message: 'Feature requires Supabase configuration' }, { status: 200 });
-    }
-
     const user = await parseAccessToken(request.headers.get('Authorization'));
     if (!user) {
       return NextResponse.json(
         { error: 'Authentication required' },
         { status: 401 }
       );
+    }
+
+    if (!isSupabaseConfigured()) {
+      const { getDb } = require('@/lib/db/sqlite');
+      const db = getDb();
+      const userId = user.userId;
+      const startOfMonth = new Date(Date.UTC(new Date().getUTCFullYear(), new Date().getUTCMonth(), 1)).toISOString();
+
+      const totalDeployed = (db.prepare(`SELECT COUNT(*) as c FROM packaging_jobs WHERE user_id = ? AND status = 'deployed'`).get(userId) as { c: number }).c;
+      const thisMonth = (db.prepare(`SELECT COUNT(*) as c FROM packaging_jobs WHERE user_id = ? AND status = 'deployed' AND completed_at >= ?`).get(userId, startOfMonth) as { c: number }).c;
+      const pending = (db.prepare(`SELECT COUNT(*) as c FROM packaging_jobs WHERE user_id = ? AND status IN ('queued','packaging','uploading')`).get(userId) as { c: number }).c;
+      const failed = (db.prepare(`SELECT COUNT(*) as c FROM packaging_jobs WHERE user_id = ? AND status = 'failed'`).get(userId) as { c: number }).c;
+      const recent = db.prepare(`SELECT id, winget_id, display_name, status, created_at, intune_app_url FROM packaging_jobs WHERE user_id = ? ORDER BY created_at DESC LIMIT 10`).all(userId);
+
+      return NextResponse.json({ totalDeployed, thisMonth, pending, failed, recentJobs: recent });
     }
 
     const supabase = createServerClient();
