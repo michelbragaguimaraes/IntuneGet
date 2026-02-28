@@ -29,7 +29,12 @@ import { createAppSuggestionIssue } from '@/lib/github-issues';
 export async function GET(request: NextRequest) {
   try {    // Self-hosted SQLite stub: return empty/default when Supabase not configured
     if (!isSupabaseConfigured()) {
-      return NextResponse.json({ data: [], items: [], count: 0, message: 'Feature requires Supabase configuration' }, { status: 200 });
+      return NextResponse.json({
+        suggestions: [],
+        userVotes: [],
+        pagination: { page: 1, limit: 20, total: 0, totalPages: 0 },
+        message: 'Feature requires Supabase configuration',
+      }, { status: 200 });
     }
 
     // Rate limit by IP for public access
