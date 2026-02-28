@@ -289,18 +289,12 @@ export class JobProcessor {
       await this.copyDirectory(psadtSource, toolkitDir);
     }
 
-    // Copy Config, Strings, and Assets directories for PSADT v4.1
-    const configSource = path.join(this.config.paths.tools, 'PSAppDeployToolkit', 'Config');
-    if (fs.existsSync(configSource)) {
-      await this.copyDirectory(configSource, path.join(packageDir, 'Config'));
-    }
-    const stringsSource = path.join(this.config.paths.tools, 'PSAppDeployToolkit', 'Strings');
-    if (fs.existsSync(stringsSource)) {
-      await this.copyDirectory(stringsSource, path.join(packageDir, 'Strings'));
-    }
-    const assetsSource = path.join(this.config.paths.tools, 'PSAppDeployToolkit', 'Assets');
-    if (fs.existsSync(assetsSource)) {
-      await this.copyDirectory(assetsSource, path.join(packageDir, 'Assets'));
+    // Copy all required PSADT v4 directories
+    for (const dir of ['Config', 'Strings', 'Assets', 'SupportFiles', 'PSAppDeployToolkit.Extensions']) {
+      const src = path.join(this.config.paths.tools, 'PSAppDeployToolkit', dir);
+      if (fs.existsSync(src)) {
+        await this.copyDirectory(src, path.join(packageDir, dir));
+      }
     }
 
     // Copy Invoke-AppDeployToolkit.exe for PSADT v4.1
@@ -317,12 +311,56 @@ export class JobProcessor {
     const installerFileName = path.basename(installerPath);
     await fs.promises.copyFile(installerPath, path.join(filesDir, installerFileName));
 
-    // Generate Invoke-AppDeployToolkit.ps1
-    const deployScript = this.generateDeployScript(job, installerFileName);
+    // Generate Invoke-AppDeployToolkit.ps1 based on template if available
+    const templatePs1 = path.join(this.config.paths.tools, 'PSAppDeployToolkit', 'Invoke-AppDeployToolkit.ps1');
+    let deployScript: string;
+    if (fs.existsSync(templatePs1)) {
+      deployScript = await this.generateDeployScriptFromTemplate(templatePs1, job, installerFileName);
+    } else {
+      deployScript = this.generateDeployScript(job, installerFileName);
+    }
     await fs.promises.writeFile(path.join(packageDir, 'Invoke-AppDeployToolkit.ps1'), deployScript);
 
     this.logger.debug('PSADT package created', { packageDir });
     return packageDir;
+  }
+
+  /**
+   * Generate Invoke-AppDeployToolkit.ps1 by injecting commands into the PSADT v4 template
+   */
+  private async generateDeployScriptFromTemplate(templatePath: string, job: PackagingJob, installerFileName: string): Promise<string> {
+    const template = await fs.promises.readFile(templatePath, 'utf-8');
+    const silentSwitches = this.extractSilentSwitches(job.install_command, job.installer_type);
+    const installCmd = this.getInstallCommand(job.installer_type, installerFileName, silentSwitches);
+    const uninstallCmd = this.getUninstallCommand(job);
+    const registryMarker = this.getRegistryMarkerCreation(job);
+    const registryRemoval = this.getRegistryMarkerRemoval(job);
+
+    // Inject into Installation section
+    let script = template.replace(
+      /(\[\[ADTSession\]\]::CurrentSession\.InstallPhase = 'Installation'[^\n]*\n)([\s\S]*?)(?=\s*#\s*\[\[ADTSession\]\]::CurrentSession\.InstallPhase = 'Post-Installation'|\s*##\*={3,}\s*##\* POST-INSTALLATION)/,
+      (match, header) => `${header}        $installerPath = "$dirFiles\\${installerFileName}"\n        ${installCmd}\n\n`
+    );
+
+    // Inject into Post-Installation section
+    script = script.replace(
+      /(\[\[ADTSession\]\]::CurrentSession\.InstallPhase = 'Post-Installation'[^\n]*\n)([\s\S]*?)(?=\s*#\s*\[\[ADTSession\]\]::CurrentSession\.InstallPhase = 'Uninstallation'|\s*##\*={3,}\s*##\* UNINSTALLATION)/,
+      (match, header) => `${header}        ${registryMarker}\n\n`
+    );
+
+    // Inject into Uninstallation section
+    script = script.replace(
+      /(\[\[ADTSession\]\]::CurrentSession\.InstallPhase = 'Uninstallation'[^\n]*\n)([\s\S]*?)(?=\s*#\s*\[\[ADTSession\]\]::CurrentSession\.InstallPhase = 'Post-Uninstallation'|\s*##\*={3,}\s*##\* POST-UNINSTALLATION)/,
+      (match, header) => `${header}        ${uninstallCmd}\n        ${registryRemoval}\n\n`
+    );
+
+    // If none of the replacements matched (template format different), fall back to generated script
+    if (script === template) {
+      this.logger.warn('PSADT template injection failed — falling back to generated script');
+      return this.generateDeployScript(job, installerFileName);
+    }
+
+    return script;
   }
 
   /**
