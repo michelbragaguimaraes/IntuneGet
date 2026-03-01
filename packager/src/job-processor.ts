@@ -381,11 +381,22 @@ export class JobProcessor {
     let configContent = await fs.promises.readFile(configPsd1, 'utf-8');
     let changed = false;
 
-    // Helper: copy a branding file into Assets/ and return the relative filename
+    // Helper: copy a branding file (local path or URL) into Assets/
     const copyAsset = async (srcPath: string, destName: string): Promise<string | null> => {
-      if (!srcPath || !fs.existsSync(srcPath)) return null;
+      if (!srcPath) return null;
       await fs.promises.mkdir(assetsDir, { recursive: true });
       const dest = path.join(assetsDir, destName);
+      if (srcPath.startsWith('http://') || srcPath.startsWith('https://')) {
+        try {
+          const fetch = (await import('node-fetch')).default;
+          const res = await fetch(srcPath, { timeout: 15000 } as never);
+          if (!res.ok) return null;
+          const buf = await res.arrayBuffer();
+          await fs.promises.writeFile(dest, Buffer.from(buf));
+          return destName;
+        } catch { return null; }
+      }
+      if (!fs.existsSync(srcPath)) return null;
       await fs.promises.copyFile(srcPath, dest);
       return destName;
     };
@@ -393,7 +404,7 @@ export class JobProcessor {
     // Logo
     const logoSrc = typeof cfg.brandingLogoPath === 'string' ? cfg.brandingLogoPath : null;
     if (logoSrc) {
-      const ext = path.extname(logoSrc) || '.png';
+      const ext = path.extname(new URL(logoSrc.startsWith('http') ? logoSrc : `file://${logoSrc}`).pathname) || '.png';
       const logoFile = await copyAsset(logoSrc, `BrandLogo${ext}`);
       if (logoFile) {
         configContent = configContent.replace(
@@ -408,7 +419,7 @@ export class JobProcessor {
     // Dark logo
     const logoDarkSrc = typeof cfg.brandingLogoDarkPath === 'string' ? cfg.brandingLogoDarkPath : null;
     if (logoDarkSrc) {
-      const ext = path.extname(logoDarkSrc) || '.png';
+      const ext = path.extname(new URL(logoDarkSrc.startsWith('http') ? logoDarkSrc : `file://${logoDarkSrc}`).pathname) || '.png';
       const logoFile = await copyAsset(logoDarkSrc, `BrandLogoDark${ext}`);
       if (logoFile) {
         configContent = configContent.replace(
@@ -422,7 +433,7 @@ export class JobProcessor {
     // Banner
     const bannerSrc = typeof cfg.brandingBannerPath === 'string' ? cfg.brandingBannerPath : null;
     if (bannerSrc) {
-      const ext = path.extname(bannerSrc) || '.png';
+      const ext = path.extname(new URL(bannerSrc.startsWith('http') ? bannerSrc : `file://${bannerSrc}`).pathname) || '.png';
       const bannerFile = await copyAsset(bannerSrc, `BrandBanner${ext}`);
       if (bannerFile) {
         configContent = configContent.replace(
