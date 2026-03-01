@@ -231,7 +231,17 @@ export class IntuneUploader {
       setupFilePath: 'Invoke-AppDeployToolkit.exe',
       installExperience: {
         runAsAccount: job.install_scope === 'user' ? 'user' : 'system',
-        deviceRestartBehavior: 'suppress',
+        deviceRestartBehavior: (() => {
+          const cfg = (job.package_config && typeof job.package_config === 'object' && !Array.isArray(job.package_config))
+            ? job.package_config as Record<string, unknown> : {};
+          const psadt = (cfg.psadtConfig && typeof cfg.psadtConfig === 'object')
+            ? cfg.psadtConfig as Record<string, unknown> : cfg;
+          switch (psadt.restartBehavior) {
+            case 'Force':  return 'force';
+            case 'Prompt': return 'basedOnReturnCode';
+            default:       return 'suppress';
+          }
+        })(),
       },
       returnCodes: [
         { returnCode: 0, type: 'success' },

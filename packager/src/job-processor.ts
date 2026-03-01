@@ -379,11 +379,22 @@ export class JobProcessor {
       : rawCfg; // fallback: if psadtConfig key absent, try top-level
 
     // 1. Fill in $adtSession app variables
-    script = script.replace(`AppVendor = ''`, `AppVendor = '${publisher}'`);
+    // Branding: company name overrides publisher if set
+    const brandingCompanyName = typeof cfg.brandingCompanyName === 'string' && cfg.brandingCompanyName.trim()
+      ? cfg.brandingCompanyName.trim().replace(/'/g, "''")
+      : publisher;
+    script = script.replace(`AppVendor = ''`, `AppVendor = '${brandingCompanyName}'`);
     script = script.replace(`AppName = ''`, `AppName = '${displayName}'`);
     script = script.replace(`AppVersion = ''`, `AppVersion = '${job.version}'`);
     script = script.replace(`AppArch = ''`, `AppArch = '${job.architecture || 'x64'}'`);
     script = script.replace(`AppScriptAuthor = '<author name>'`, `AppScriptAuthor = 'IntuneGet'`);
+
+    // Branding: welcome title/message injected as session variables if set
+    if (typeof cfg.brandingWelcomeTitle === 'string' && cfg.brandingWelcomeTitle.trim()) {
+      const title = cfg.brandingWelcomeTitle.trim().replace(/'/g, "''");
+      script = script.replace(`AppName = '${displayName}'`, `AppName = '${displayName}'
+    WelcomePromptTitle = '${title}'`);
+    }
 
     // 2. Set AppProcessesToClose from package_config
     const processesToClose = Array.isArray(cfg.processesToClose) ? cfg.processesToClose as Array<{ name: string; description: string }> : [];
