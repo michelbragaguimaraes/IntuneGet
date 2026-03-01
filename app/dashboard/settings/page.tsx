@@ -998,7 +998,8 @@ function AutoRefreshSelector() {
   const handleSelect = (value: '5' | '15' | '30' | '60') => {
     setRefreshInterval(value);
     localStorage.setItem('intuneget:auto-refresh-interval', value);
-    // Notify other tabs
+    // Notify same tab and other tabs
+    window.dispatchEvent(new Event('intuneget:refresh-interval-changed'));
     window.dispatchEvent(new StorageEvent('storage', { key: 'intuneget:auto-refresh-interval', newValue: value }));
   };
 

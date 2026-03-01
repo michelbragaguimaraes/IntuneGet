@@ -39,15 +39,15 @@ export function useAutoRefresh() {
 
     start();
 
-    // Re-start timer when the user changes the setting in another tab
-    const handleStorage = (e: StorageEvent) => {
-      if (e.key === STORAGE_KEY) start();
-    };
-    window.addEventListener('storage', handleStorage);
+    // Re-start timer when the user changes the setting (same or other tab)
+    const handleChange = () => start();
+    window.addEventListener('intuneget:refresh-interval-changed', handleChange);
+    window.addEventListener('storage', handleChange);
 
     return () => {
       if (timerRef.current) clearInterval(timerRef.current);
-      window.removeEventListener('storage', handleStorage);
+      window.removeEventListener('intuneget:refresh-interval-changed', handleChange);
+      window.removeEventListener('storage', handleChange);
     };
   }, [router]);
 }
