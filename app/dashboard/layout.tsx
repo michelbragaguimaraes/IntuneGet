@@ -22,6 +22,7 @@ import { UploadCart } from '@/components/UploadCart';
 import { NotificationBell } from '@/components/notifications';
 import { Sidebar, DeploymentStatusIndicator } from '@/components/dashboard';
 import { CommandPalette } from '@/components/dashboard/CommandPalette';
+import { useAutoRefresh } from '@/hooks/use-auto-refresh';
 import { springPresets } from '@/lib/animations/variants';
 
 export default function DashboardLayout({
@@ -52,6 +53,7 @@ export default function DashboardLayout({
     setCommandPaletteOpen(true);
   }, []);
 
+  useAutoRefresh();
   useKeyboardShortcuts({
     onCommandPalette: handleOpenCommandPalette,
     onToggleCart: toggleCart,

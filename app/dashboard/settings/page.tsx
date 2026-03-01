@@ -988,6 +988,20 @@ function DataManagementSection() {
 function AutoRefreshSelector() {
   const [refreshInterval, setRefreshInterval] = useState<'5' | '15' | '30' | '60'>('15');
 
+  useEffect(() => {
+    const stored = localStorage.getItem('intuneget:auto-refresh-interval');
+    if (stored && ['5', '15', '30', '60'].includes(stored)) {
+      setRefreshInterval(stored as '5' | '15' | '30' | '60');
+    }
+  }, []);
+
+  const handleSelect = (value: '5' | '15' | '30' | '60') => {
+    setRefreshInterval(value);
+    localStorage.setItem('intuneget:auto-refresh-interval', value);
+    // Notify other tabs
+    window.dispatchEvent(new StorageEvent('storage', { key: 'intuneget:auto-refresh-interval', newValue: value }));
+  };
+
   const options = [
     { value: '5' as const, label: '5 min' },
     { value: '15' as const, label: '15 min' },
@@ -1000,7 +1014,7 @@ function AutoRefreshSelector() {
       {options.map((option) => (
         <button
           key={option.value}
-          onClick={() => setRefreshInterval(option.value)}
+          onClick={() => handleSelect(option.value)}
           className={cn(
             'px-4 py-2 rounded-lg border text-sm transition-all',
             refreshInterval === option.value
