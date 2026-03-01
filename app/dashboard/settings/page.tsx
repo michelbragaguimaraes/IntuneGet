@@ -889,10 +889,18 @@ function DataManagementSection() {
 
   const handleForceSync = async () => {
     setIsSyncing(true);
-    // Simulate sync
-    await new Promise(resolve => setTimeout(resolve, 2000));
-    setLastSync(new Date().toLocaleString());
-    setIsSyncing(false);
+    try {
+      const res = await fetch('/api/admin/sync-catalog', { method: 'POST' });
+      if (res.ok) {
+        setLastSync(new Date().toLocaleString());
+      } else {
+        console.error('Catalog sync failed:', await res.text());
+      }
+    } catch (err) {
+      console.error('Catalog sync error:', err);
+    } finally {
+      setIsSyncing(false);
+    }
   };
 
   return (
@@ -929,9 +937,9 @@ function DataManagementSection() {
       <div className="p-4 bg-bg-elevated rounded-lg border border-overlay/5">
         <div className="flex items-center justify-between">
           <div>
-            <p className="text-text-primary font-medium">Force Sync</p>
+            <p className="text-text-primary font-medium">Sync App Catalog</p>
             <p className="text-sm text-text-secondary">
-              Re-fetch all application data from Intune
+              Re-sync the WinGet package catalog from the upstream index
             </p>
             {lastSync && (
               <p className="text-xs text-text-muted mt-1">Last synced: {lastSync}</p>
