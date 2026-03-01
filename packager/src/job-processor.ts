@@ -356,8 +356,101 @@ export class JobProcessor {
     }
     await fs.promises.writeFile(path.join(packageDir, 'Invoke-AppDeployToolkit.ps1'), deployScript);
 
+    // Apply branding (logo, banner, accent color) if configured
+    await this.applyBranding(job, packageDir);
+
     this.logger.debug('PSADT package created', { packageDir });
     return packageDir;
+  }
+
+  /**
+   * Apply branding assets to the PSADT package.
+   * Copies logo/banner files into Package/Assets/ and updates Config/config.psd1.
+   */
+  private async applyBranding(job: PackagingJob, packageDir: string): Promise<void> {
+    const rawCfg = (job.package_config && typeof job.package_config === 'object' && !Array.isArray(job.package_config))
+      ? job.package_config as Record<string, unknown> : {};
+    const cfg = (rawCfg.psadtConfig && typeof rawCfg.psadtConfig === 'object')
+      ? rawCfg.psadtConfig as Record<string, unknown> : rawCfg;
+
+    const assetsDir = path.join(packageDir, 'Assets');
+    const configPsd1 = path.join(packageDir, 'Config', 'config.psd1');
+
+    if (!fs.existsSync(configPsd1)) return;
+
+    let configContent = await fs.promises.readFile(configPsd1, 'utf-8');
+    let changed = false;
+
+    // Helper: copy a branding file into Assets/ and return the relative filename
+    const copyAsset = async (srcPath: string, destName: string): Promise<string | null> => {
+      if (!srcPath || !fs.existsSync(srcPath)) return null;
+      await fs.promises.mkdir(assetsDir, { recursive: true });
+      const dest = path.join(assetsDir, destName);
+      await fs.promises.copyFile(srcPath, dest);
+      return destName;
+    };
+
+    // Logo
+    const logoSrc = typeof cfg.brandingLogoPath === 'string' ? cfg.brandingLogoPath : null;
+    if (logoSrc) {
+      const ext = path.extname(logoSrc) || '.png';
+      const logoFile = await copyAsset(logoSrc, `BrandLogo${ext}`);
+      if (logoFile) {
+        configContent = configContent.replace(
+          /Logo\s*=\s*'[^']*'/,
+          `Logo = '..\Assets\${logoFile}'`
+        );
+        changed = true;
+        this.logger.debug('Applied branding logo', { logoFile });
+      }
+    }
+
+    // Dark logo
+    const logoDarkSrc = typeof cfg.brandingLogoDarkPath === 'string' ? cfg.brandingLogoDarkPath : null;
+    if (logoDarkSrc) {
+      const ext = path.extname(logoDarkSrc) || '.png';
+      const logoFile = await copyAsset(logoDarkSrc, `BrandLogoDark${ext}`);
+      if (logoFile) {
+        configContent = configContent.replace(
+          /LogoDark\s*=\s*'[^']*'/,
+          `LogoDark = '..\Assets\${logoFile}'`
+        );
+        changed = true;
+      }
+    }
+
+    // Banner
+    const bannerSrc = typeof cfg.brandingBannerPath === 'string' ? cfg.brandingBannerPath : null;
+    if (bannerSrc) {
+      const ext = path.extname(bannerSrc) || '.png';
+      const bannerFile = await copyAsset(bannerSrc, `BrandBanner${ext}`);
+      if (bannerFile) {
+        configContent = configContent.replace(
+          /Banner\s*=\s*'[^']*'/,
+          `Banner = '..\Assets\${bannerFile}'`
+        );
+        changed = true;
+        this.logger.debug('Applied branding banner', { bannerFile });
+      }
+    }
+
+    // Accent color
+    const accentColor = typeof cfg.brandingAccentColor === 'string' ? cfg.brandingAccentColor.trim() : null;
+    if (accentColor) {
+      // Convert #RRGGBB to 0xFFRRGGBB (full opacity)
+      const hex = accentColor.startsWith('#') ? accentColor.slice(1) : accentColor;
+      const psadtColor = `0xFF${hex.toUpperCase()}`;
+      configContent = configContent.replace(
+        /FluentAccentColor\s*=\s*\$null/,
+        `FluentAccentColor = ${psadtColor}`
+      );
+      changed = true;
+      this.logger.debug('Applied branding accent color', { psadtColor });
+    }
+
+    if (changed) {
+      await fs.promises.writeFile(configPsd1, configContent, 'utf-8');
+    }
   }
 
   /**
