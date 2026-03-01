@@ -126,11 +126,22 @@ export function useUnmanagedApps(): UseUnmanagedAppsReturn {
     return token;
   }, [getAccessToken]);
 
+  // In-flight guard and last-fetch timestamp to prevent thundering herd
+  const isFetchingRef = useRef(false);
+  const lastFetchRef = useRef<number>(0);
+  const MIN_REFETCH_MS = 60_000; // never refetch more than once per minute
+
   // Fetch unmanaged apps
   const fetchApps = useCallback(async (forceRefresh = false) => {
+    if (isFetchingRef.current) return; // already in flight
+    const now = Date.now();
+    if (!forceRefresh && now - lastFetchRef.current < MIN_REFETCH_MS) return; // too soon
+
     const accessToken = await getToken();
     if (!accessToken) return;
 
+    isFetchingRef.current = true;
+    lastFetchRef.current = now;
     try {
       const url = `/api/intune/unmanaged-apps${forceRefresh ? '?refresh=true' : ''}`;
       const response = await fetch(url, {
@@ -164,6 +175,8 @@ export function useUnmanagedApps(): UseUnmanagedAppsReturn {
         description: message.includes('fetch') ? 'Network error. Check your connection and try again.' : message,
         variant: 'destructive',
       });
+    } finally {
+      isFetchingRef.current = false;
     }
   }, [getToken, mspHeaders]);
 
