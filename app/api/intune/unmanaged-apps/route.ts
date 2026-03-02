@@ -19,7 +19,7 @@ import type {
 } from '@/types/unmanaged';
 
 const GRAPH_API_BASE = 'https://graph.microsoft.com/v1.0';
-const CACHE_DURATION_MS = 60 * 60 * 1000; // 1 hour
+const CACHE_DURATION_MS = 4 * 60 * 60 * 1000; // 4 hours
 
 import type { Database, Json } from '@/types/database';
 
@@ -77,34 +77,43 @@ export async function GET(request: NextRequest) {
 
         if (cachedApps.length > 0) {
           const lastSynced = new Date(cachedApps[0].last_synced as string).getTime();
-          if (Date.now() - lastSynced < CACHE_DURATION_MS) {
-            const claimedRows = db.prepare(
-              `SELECT discovered_app_id, status FROM claimed_apps WHERE tenant_id = ?`
-            ).all(tenantId) as Array<{ discovered_app_id: string; status: string }>;
-            const claimedMap = new Map(claimedRows.map(c => [c.discovered_app_id, c.status]));
+          const isStale = Date.now() - lastSynced >= CACHE_DURATION_MS;
 
-            const apps: UnmanagedApp[] = cachedApps
-              .filter(app => includeSystem || !isSystemApp(JSON.parse(app.app_data as string || '{}') as GraphUnmanagedApp))
-              .filter(app => claimedMap.get(app.discovered_app_id as string) !== 'deployed')
-              .map(cached => ({
-                id: cached.id as string,
-                discoveredAppId: cached.discovered_app_id as string,
-                displayName: cached.display_name as string,
-                version: cached.version as string | null,
-                publisher: cached.publisher as string | null,
-                deviceCount: cached.device_count as number,
-                platform: cached.platform as string,
-                matchStatus: cached.match_status as MatchStatus,
-                matchedPackageId: cached.matched_package_id as string | null,
-                matchedPackageName: null,
-                matchConfidence: cached.match_confidence as number | null,
-                isClaimed: claimedMap.has(cached.discovered_app_id as string),
-                claimStatus: claimedMap.get(cached.discovered_app_id as string) as UnmanagedApp['claimStatus'],
-                lastSynced: cached.last_synced as string,
-              }));
+          // Always build and return the cached response immediately
+          const claimedRows = db.prepare(
+            `SELECT discovered_app_id, status FROM claimed_apps WHERE tenant_id = ?`
+          ).all(tenantId) as Array<{ discovered_app_id: string; status: string }>;
+          const claimedMap = new Map(claimedRows.map(c => [c.discovered_app_id, c.status]));
 
-            return NextResponse.json({ apps, total: apps.length, lastSynced: cachedApps[0].last_synced, fromCache: true } as UnmanagedAppsResponse);
+          const apps: UnmanagedApp[] = cachedApps
+            .filter(app => includeSystem || !isSystemApp(JSON.parse(app.app_data as string || '{}') as GraphUnmanagedApp))
+            .filter(app => claimedMap.get(app.discovered_app_id as string) !== 'deployed')
+            .map(cached => ({
+              id: cached.id as string,
+              discoveredAppId: cached.discovered_app_id as string,
+              displayName: cached.display_name as string,
+              version: cached.version as string | null,
+              publisher: cached.publisher as string | null,
+              deviceCount: cached.device_count as number,
+              platform: cached.platform as string,
+              matchStatus: cached.match_status as MatchStatus,
+              matchedPackageId: cached.matched_package_id as string | null,
+              matchedPackageName: null,
+              matchConfidence: cached.match_confidence as number | null,
+              isClaimed: claimedMap.has(cached.discovered_app_id as string),
+              claimStatus: claimedMap.get(cached.discovered_app_id as string) as UnmanagedApp['claimStatus'],
+              lastSynced: cached.last_synced as string,
+            }));
+
+          // If stale, kick off a background refresh but don't wait for it
+          if (isStale) {
+            console.log('[Cache] Stale cache detected, background refresh triggered');
+            fetch(`${process.env.NEXT_PUBLIC_URL || 'http://localhost:3000'}/api/intune/unmanaged-apps?refresh=true`, {
+              headers: { 'x-tenant-id': tenantId, 'x-background-refresh': '1' },
+            }).catch(() => {});
           }
+
+          return NextResponse.json({ apps, total: apps.length, lastSynced: cachedApps[0].last_synced, fromCache: true, stale: isStale } as UnmanagedAppsResponse);
         }
       } catch {
         // Cache miss or schema not ready — fall through to Graph API fetch

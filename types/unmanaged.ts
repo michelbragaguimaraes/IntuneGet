@@ -129,6 +129,7 @@ export interface UnmanagedAppsResponse {
   total: number;
   lastSynced: string | null;
   fromCache: boolean;
+  stale?: boolean;
 }
 
 /**
