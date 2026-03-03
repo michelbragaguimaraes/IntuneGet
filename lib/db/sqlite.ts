@@ -212,6 +212,12 @@ function initializeSchema(db: Database.Database): void {
 
   // Create update_check_results table
   db.exec(`
+    CREATE TABLE IF NOT EXISTS user_profiles (
+      id TEXT PRIMARY KEY,
+      profile_image TEXT,
+      updated_at TEXT
+    );
+
     CREATE TABLE IF NOT EXISTS update_check_results (
       id TEXT PRIMARY KEY DEFAULT (lower(hex(randomblob(16)))),
       user_id TEXT NOT NULL,
