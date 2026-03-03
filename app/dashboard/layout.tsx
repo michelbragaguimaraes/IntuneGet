@@ -70,7 +70,10 @@ export default function DashboardLayout({
   }, [isLoading, isAuthenticated, isSigningOut, router]);
 
   useEffect(() => {
-    if (!isLoading && isAuthenticated && !isCheckingOnboarding) {
+    // Wait until auth is settled AND onboarding check has completed before redirecting.
+    // isCheckingOnboarding starts true and flips false only after the check finishes.
+    // Without this guard, a page refresh triggers a redirect before MSAL rehydrates.
+    if (!isLoading && isAuthenticated && isCheckingOnboarding === false) {
       if (!isOnboardingComplete) {
         if (errorType === 'network_error' || errorType === 'missing_credentials') {
           setShowRetryBanner(true);
