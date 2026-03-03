@@ -118,7 +118,10 @@ export function useOnboardingStatus(): OnboardingStatus {
   useEffect(() => {
     // Wait for auth to be determined
     if (!isAuthenticated) {
-      setIsChecking(false);
+      // Keep isChecking=true while unauthenticated so the dashboard
+      // layout does not briefly see isChecking=false + isComplete=false
+      // and fire a redirect before auth rehydrates.
+      setIsChecking(true);
       return;
     }
 
