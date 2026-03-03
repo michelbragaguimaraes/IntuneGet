@@ -75,6 +75,7 @@ export default function DashboardLayout({
     // Without this guard, a page refresh triggers a redirect before MSAL rehydrates.
     if (!isLoading && isAuthenticated && isCheckingOnboarding === false) {
       if (!isOnboardingComplete) {
+        console.warn('[ONBOARDING] Redirect triggered:', { isOnboardingComplete, errorType, isAuthenticated, isCheckingOnboarding });
         if (errorType === 'network_error' || errorType === 'missing_credentials') {
           setShowRetryBanner(true);
         } else if (errorType === 'consent_not_granted') {
