@@ -303,6 +303,15 @@ async function storeConsentRecord(
   userEmail: string
 ): Promise<void> {
   if (!isSupabaseConfigured()) {
+    try {
+      const { getDb } = await import('@/lib/db/sqlite');
+      const db = getDb();
+      db.prepare(`INSERT INTO tenant_consent (tenant_id, consented_by_user_id, consented_by_email, consent_granted_at, is_active)
+        VALUES (?, ?, ?, ?, 1)
+        ON CONFLICT(tenant_id) DO UPDATE SET is_active = 1, consented_by_user_id = excluded.consented_by_user_id,
+        consented_by_email = excluded.consented_by_email, consent_granted_at = excluded.consent_granted_at`)
+        .run(tenantId, userId, userEmail, new Date().toISOString());
+    } catch { /* silent */ }
     return;
   }
 
@@ -329,7 +338,14 @@ async function storeConsentRecord(
  */
 async function checkStoredConsent(tenantId: string): Promise<boolean> {
   if (!isSupabaseConfigured()) {
-    return false;
+    try {
+      const { getDb } = await import('@/lib/db/sqlite');
+      const db = getDb();
+      const row = db.prepare('SELECT is_active FROM tenant_consent WHERE tenant_id = ?').get(tenantId) as { is_active: number } | undefined;
+      return row?.is_active === 1;
+    } catch {
+      return false;
+    }
   }
 
   try {
@@ -356,6 +372,11 @@ async function checkStoredConsent(tenantId: string): Promise<boolean> {
  */
 async function clearStoredConsent(tenantId: string): Promise<void> {
   if (!isSupabaseConfigured()) {
+    try {
+      const { getDb } = await import('@/lib/db/sqlite');
+      const db = getDb();
+      db.prepare('UPDATE tenant_consent SET is_active = 0 WHERE tenant_id = ?').run(tenantId);
+    } catch { /* silent */ }
     return;
   }
 
