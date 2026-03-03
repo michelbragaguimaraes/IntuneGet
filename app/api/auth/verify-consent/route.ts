@@ -429,7 +429,19 @@ export async function POST(request: NextRequest): Promise<NextResponse<ConsentVe
     // First, check if we have a cached consent record in the database
     const hasStoredConsent = await checkStoredConsent(tenantId);
     if (hasStoredConsent) {
-      // Re-verify to ensure consent is still valid (handles revocation)
+      // In SQLite (single-tenant) mode, trust the cached consent directly.
+      // Re-verification on every load causes unnecessary Graph API calls and
+      // clears the cache on transient network failures, causing redirect loops.
+      if (!isSupabaseConfigured()) {
+        return NextResponse.json({
+          verified: true,
+          tenantId,
+          message: 'Admin consent verified (cached)',
+          cachedResult: true,
+        });
+      }
+
+      // In Supabase/MSP mode, re-verify to catch consent revocation across tenants.
       const reVerifyResult = await verifyConsentWithGraph(tenantId);
       if (!reVerifyResult.verified) {
         // Clear stale cache
