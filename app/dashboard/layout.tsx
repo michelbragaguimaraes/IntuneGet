@@ -75,12 +75,12 @@ export default function DashboardLayout({
     // Without this guard, a page refresh triggers a redirect before MSAL rehydrates.
     if (!isLoading && isAuthenticated && isCheckingOnboarding === false) {
       if (!isOnboardingComplete) {
-        console.warn('[ONBOARDING] Redirect triggered:', { isOnboardingComplete, errorType, isAuthenticated, isCheckingOnboarding });
         if (errorType === 'network_error' || errorType === 'missing_credentials') {
           setShowRetryBanner(true);
         } else if (errorType === 'consent_not_granted') {
           router.push('/onboarding');
-        } else {
+        } else if (errorType !== null) {
+          // Only redirect on a definitive error — never on null (check not yet run)
           router.push('/onboarding');
         }
       } else {
